@@ -1,0 +1,1656 @@
+---
+# Monitoring Stack for Local ML Speech Emotion Recognition
+# Includes: Prometheus, Grafana, Loki, NodeExporter, Promtail
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+    environment: local
+    purpose: observability
+---
+# Prometheus Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+  labels:
+    app: prometheus
+    environment: local
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: 'ml-emotion-local'
+        replica: 'prometheus-1'
+
+    rule_files:
+      - "/etc/prometheus/rules/*.yml"
+
+    scrape_configs:
+      # Prometheus self-monitoring
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # Kubernetes API Server
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: default;kubernetes;https
+
+      # Node Exporter (System Metrics)
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      # Kubernetes Pods (Application Metrics)
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - ml-emotion
+                - monitoring
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+
+      # ML Emotion Backend Specific
+      - job_name: 'ml-emotion-backend'
+        kubernetes_sd_configs:
+          - role: endpoints
+          namespaces:
+            names:
+              - ml-emotion
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: backend
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: http|metrics
+
+    # Alerting Rules
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+              - alertmanager:9093
+
+  # ML App Alerting Rules
+  ml_app_rules.yml: |
+    groups:
+    - name: ml_emotion_alerts
+      rules:
+      - alert: BackendDown
+        expr: up{job="ml-emotion-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: backend
+        annotations:
+          summary: "ML Emotion Backend is down"
+          description: "Backend has been down for more than 1 minute"
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{job="ml-emotion-backend",status=~"5.."}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }} errors per second"
+
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="ml-emotion-backend"}[5m])) > 2
+        for: 3m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }} seconds"
+---
+# Grafana Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+  labels:
+    app: grafana
+    environment: local
+data:
+  datasources.yml: |
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://prometheus:9090
+      isDefault: true
+      editable: true
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki:3100
+      editable: true
+      jsonData:
+        maxLines: 1000
+---
+# Grafana Dashboards
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+  labels:
+    app: grafana
+    environment: local
+data:
+  ml-emotion-overview.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "ML Emotion Recognition - Overview",
+        "tags": ["ml", "emotion", "recognition"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "API Request Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(http_requests_total{job=\"ml-emotion-backend\"}[5m])",
+                "legendFormat": "{{method}} {{endpoint}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+            "lines": true,
+            "linewidth": 2
+          },
+          {
+            "id": 2,
+            "title": "Response Time",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"ml-emotion-backend\"}[5m]))",
+                "legendFormat": "95th percentile"
+              },
+              {
+                "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=\"ml-emotion-backend\"}[5m]))",
+                "legendFormat": "50th percentile"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+            "lines": true,
+            "linewidth": 2
+          },
+          {
+            "id": 3,
+            "title": "Error Rate",
+            "type": "singlestat",
+            "targets": [
+              {
+                "expr": "rate(http_requests_total{job=\"ml-emotion-backend\",status=~\"5..\"}[5m]) * 100",
+                "legendFormat": "Error Rate %"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 6, "x": 0, "y": 8},
+            "valueMaps": [
+              {"value": "0", "text": "OK"},
+              {"value": "5", "text": "WARNING"},
+              {"value": "10", "text": "CRITICAL"}
+            ],
+            "thresholds": "5,10"
+          }
+        ],
+        "time": {"from": "now-1h", "to": "now"},
+        "refresh": "5s"
+      }
+    }
+  system-metrics.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "System Metrics",
+        "tags": ["system", "node"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "CPU Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(process_cpu_seconds_total{job=\"node-exporter\"}[5m]) * 100",
+                "legendFormat": "{{instance}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Memory Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100",
+                "legendFormat": "Available Memory %"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+          }
+        ],
+        "time": {"from": "now-1h", "to": "now"},
+        "refresh": "5s"
+      }
+    }
+---
+# Loki Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: monitoring
+  labels:
+    app: loki
+    environment: local
+data:
+  loki.yaml: |
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9096
+
+    ingester:
+      lifecycler:
+        address: 127.0.0.1:9095
+        ring:
+          kvstore:
+            store: inmemory
+            repetition_factor: 1
+        final_sleep: 0s
+        max_period_retries: 0
+        cleanup_interval: 1h
+        cleanup_period: 24h
+        delete_period: 24h
+        delete_request_cancel_period: 0s
+        operation_timeout: 0s
+        max_transfer_retries: 0
+        grpc_client_config:
+          grpc_compression: gzip
+        flush_check_period: 5s
+        flush_timeout: 1m
+        max_retries: 10
+        grpc_config:
+          max_send_msg_size: 16777216
+          grpc_compression: gzip
+
+    schema_config:
+      configs:
+      - from: "2020-10-24"
+        store: boltdb-shipper
+        object_store: filesystem
+        schema: v11
+        index:
+          prefix: index_
+          period: 24h
+
+    storage_config:
+      boltdb_shipper:
+        active_index_directory: /loki/boltdb-shipper-active
+        cache_location: /loki/boltdb-shipper-cache
+        shared_store: filesystem
+        index_gateway_client:
+          grpc_client_config:
+            grpc_compression: gzip
+      filesystem:
+        directory: /loki/chunks
+
+    chunk_store_config:
+      max_look_back_period: 0s
+      rdb:
+        dir: /loki/boltdb-shipper-cache
+
+    limits_config:
+      enforce_metric_name: false
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+      ingestion_rate_mb: 16
+      ingestion_burst_size_mb: 32
+      per_stream_rate_limit: "16MB"
+      per_stream_rate_limit_burst: "32MB"
+
+    table_manager:
+      retention_deletes_enabled: false
+      retention_period: 0s
+
+    compactor:
+      address: 127.0.0.1:9095
+      shared_store: filesystem
+      compaction_interval: 1h
+      retention_enabled: true
+      retention_delete_enabled: false
+      delete_request_cancel_period: 0s
+
+    querier:
+      max_concurrent: 4
+      engine:
+        max_look_back_period: 0s
+
+    query_range:
+      cache_results: true
+      results_cache:
+        cache:
+          embedded_cache:
+            enabled: true
+            max_size_mb: 100
+---
+# Promtail Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: monitoring
+  labels:
+    app: promtail
+    environment: local
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 3101
+      grpc_listen_port: 0
+
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+
+    positions:
+      filename: /tmp/positions.yaml
+
+    scrape_configs:
+    - job_name: ml-emotion-logs
+      kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names:
+              - ml-emotion
+      relabel_configs:
+        - source_labels:
+          - __meta_kubernetes_pod_name
+          - __meta_kubernetes_pod_container_name
+          - __meta_kubernetes_pod_annotation_fluentd_org_include
+          - __meta_kubernetes_pod_annotation_fluentd_org_exclude
+          - __meta_kubernetes_pod_annotation_kubernetes_io_config_hash
+          - __meta_kubernetes_pod_annotation_kubernetes_io_config_checksum
+          - __meta_kubernetes_pod_annotation_kubernetes_io_config_secrets
+          - __meta_kubernetes_pod_annotation_kubernetes_io_restart
+          - __meta_kubernetes_pod_annotation_kubernetes_io_limit
+          - __meta_kubernetes_pod_annotation_kubernetes_io_limit_cpu
+          - __meta_kubernetes_pod_annotation_kubernetes_io_limit_memory
+          - __meta_kubernetes_pod_annotation_kubernetes_io_limit_ephemeral_storage
+          - __meta_kubernetes_pod_annotation_kubernetes_io_limit_hugepages
+          - __meta_kubernetes_pod_annotation_kubernetes_io_limit_storage
+          - __meta_kubernetes_pod_annotation_kubernetes_io_pods
+          - __meta_kubernetes_pod_annotation_kubernetes_io_class
+          - __meta_kubernetes_pod_annotation_kubernetes_io_priority_class
+          - __meta_kubernetes_pod_annotation_kubernetes_io_disable
+          - __meta_kubernetes_pod_annotation_kubernetes_io_cpu_manager
+          - __meta_kubernetes_pod_annotation_kubernetes_io_cpu_quota
+          - __meta_kubernetes_pod_annotation_kubernetes_io_memory_manager
+          - __meta_kubernetes_pod_annotation_kubernetes_io_memory_quota
+          - __meta_kubernetes_pod_annotation_kubernetes_io_storage_manager
+          - __meta_kubernetes_pod_annotation_kubernetes_io_storage_quota
+          - __meta_kubernetes_pod_annotation_kubernetes_io_oom-killer
+          - __meta_kubernetes_pod_annotation_kubernetes_io_runtimeclass
+          - __meta_kubernetes_pod_annotation_kubernetes_io_scheduling_gate
+          - __meta_kubernetes_pod_annotation_kubernetes_io_init_containers
+          - __meta_kubernetes_pod_annotation_kubernetes_io_preemption
+          - __meta_kubernetes_pod_annotation_kubernetes_io_preempt_volumes
+          - __meta_kubernetes_pod_annotation_kubernetes_io_windows_runtime_class
+          - __meta_kubernetes_pod_annotation_kubernetes_io_hostname
+          - __meta_kubernetes_pod_annotation_kubernetes_io_subdomain
+          - __meta_kubernetes_pod_annotation_kubernetes_io_instance_id
+          - __meta_kubernetes_pod_annotation_kubernetes_io_instance_type
+          - __meta_kubernetes_pod_annotation_kubernetes_io_node_uid
+          - __meta_kubernetes_pod_annotation_kubernetes_io_node_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_region_zone_failure_domain
+          - __meta_kubernetes_pod_annotation_kubernetes_io_region_zone_fault_domain
+          - __meta_kubernetes_pod_annotation_kubernetes_io_region_zone
+          - __meta_kubernetes_pod_annotation_kubernetes_io_ebs_volume_id
+          - __meta_kubernetes_pod_annotation_kubernetes_io_azure_volume_id
+          - __meta_kubernetes_pod_annotation_kubernetes_io_gce_pd_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_csivolumeid
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fstype
+          - __meta_kubernetes_pod_annotation_kubernetes_io_projid
+          - __meta_kubernetes_pod_annotation_kubernetes_io_operator_converged
+          - __meta_kubernetes_pod_annotation_kubernetes_io_operator_rolled
+          - __meta_kubernetes_pod_annotation_kubernetes_io_karpenter
+          - __meta_kubernetes_pod_annotation_kubernetes_io_overhead
+          - __meta_kubernetes_pod_annotation_kubernetes_io_nvidia_gpu
+          - __meta_kubernetes_pod_annotation_kubernetes_io_amazonaws_com
+          - __meta_kubernetes_pod_annotation_kubernetes_io_austin
+          - __meta_kubernetes_pod_annotation_kubernetes_io_app_kubernetes_io_version
+          - __meta_kubernetes_pod_annotation_kubernetes_io_heroku_com_drain
+          - __meta_kubernetes_pod_annotation_kubernetes_io_heroku_com_release
+          - __meta_kubernetes_pod_annotation_kubernetes_io_kubepack_com
+          - __meta_kubernetes_pod_annotation_kubernetes_io_k8s_app_info
+          - __meta_kubernetes_pod_annotation_kubernetes_io_k8s_e2e_app_info
+          - __meta_kubernetes_pod_annotation_kubernetes_io_k8s_e2e_test_app_info
+          - __meta_kubernetes_pod_annotation_kubernetes_io_k8s_e2e_test_results_app_info
+          - __meta_kubernetes_pod_annotation_kubernetes_io_k8s_e2e_test_results_github_app_info
+          - __meta_kubernetes_pod_annotation_kubernetes_io_k8s_e2e_test_results_s3_app_info
+          - __meta_kubernetes_pod_annotation_kubernetes_io_k8s_e2e_test_results_webhook_app_info
+          - __meta_kubernetes_pod_annotation_kubernetes_io_k8s_e2e_test_zalenium_app_info
+          - __meta_kubernetes_pod_annotation_kubernetes_io_k8s_deployment_app
+          - __meta_kubernetes_pod_annotation_kubernetes_io_k8s_secret_volume
+          - __meta_kubernetes_pod_annotation_kubernetes_io_k8s_slack_app_info
+          - __meta_kubernetes_pod_annotation_kubernetes.io_k8s_transform_app_info
+          - __meta_kubernetes_pod_annotation_kubernetes.io_k8s_translate_app_info
+          - __meta_kubernetes_pod_annotation_kubernetes_io_k8s_vmopenshift_io_provider
+          - __meta_kubernetes_pod_annotation_kubernetes_io_linkerd_io_inject
+          - __meta_kubernetes_pod_annotation_kubernetes_io_linkerd_io_proxy_injection_port
+          - __meta_kubernetes_pod_annotation_kubernetes_io_linkerd_io_inject_ca_file
+          - __meta_kubernetes_pod_annotation_kubernetes.io_nginx_ingress_controller_ingress_class
+          - __meta_kubernetes_pod_annotation_kubernetes_io_cert_manager_io_legacy
+          - __meta_kubernetes_pod_annotation_kubernetes.io_istio_injection
+          - __meta_kubernetes_pod_annotation_kubernetes_io_istio_rev
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_application_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_argocd_argocd_instance_id
+          - __meta_kubernetes_pod_annotation_kubernetes_io_argocd_argocd_application_instance_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_argocd_argocd_application_revision
+          - __meta_kubernetes_pod_annotation_kubernetes_io_argocd_argocd_application_status
+          - __meta_kubernetes_pod_annotation_kubernetes_io_argocd_argocd_operation_phase
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_app
+          - __meta_kubernetes_pod_annotation_kubernetes_io_argocd_argocd_proj
+          - __meta_kubernetes_pod_annotation_kubernetes_io_argocd_argocd_repo
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_sync_status
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_sync_option
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_sync_result
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_sync_revision
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_application_source_type
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_ignore_differences
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_ignore_missing
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_image_updater
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_image_updater_operation
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_image_updater_maintenance_mode
+          - __meta_kubernetes_pod_annotation_kubernetes_io_argocd_argocd_sync_strategy
+          - __meta_kubernetes_pod_annotation_kubernetes.io_argocd_argocd_resourcemodifiers
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadog_com_check
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_admission_id
+          - __meta_kubernetes_pod_annotation_kubernetes_io_datadoghq_admission_status
+          - __meta_kubernetes_pod_annotation_kubernetes_io_datadoghq_service
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_version
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_instance
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_containers
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_enabled
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_env
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_logs_injection
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_process_config
+          - __meta_kubernetes_pod_annotation_kubernetes_io_datadoghq_logs
+          - __meta_kubernetes_pod_annotation_kubernetes_io_datadoghq_metrics
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_trace_config
+          - __meta_kubernetes_pod_annotation_kubernetes_io_datadoghq_trace_agent
+          - __meta_kubernetes_pod_annotation_kubernetes_io_datadoghq_apm_config
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_container_logs
+          - __meta_kubernetes_pod_annotation_kubernetes_io_datadoghq_container_metrics
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_tags
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_trace_debug
+          - __meta_kubernetes_pod_annotation_kubernetes_io_datadoghq_trace_debug
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_trace_excluded
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_trace_excluded_out
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_trace_sample_rate
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_trace_tags
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_dd_tags
+          - __meta_kubernetes_pod_annotation_kubernetes_io_datadoghq_dogstatsd_stats_port
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_dogstatsd_statsd_host
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_dogstatsd_port
+          - __meta_kubernetes_pod_annotation_kubernetes.io_datadoghq_system_probe
+          - __meta_kubernetes_pod_annotation_kubernetes_io_datadoghq_tomcat_server
+          - __meta_kubernetes_pod_annotation_kubernetes.io_kubernetes_io
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_check
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_check_port
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_check_statsd
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_check_statsd_host
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_check_statsd_port
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_check_statsd_wan
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_control_socket
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_control_socket_path
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_control_socket_ppid_file
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_driver
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_fluentd
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_version
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluentbit_com_ignore
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluxcd_io_ignore
+          - __meta_kubernetes_pod_annotation_kubernetes.io_fluxcd.io_workload
+          - __meta_kubernetes_pod_annotation_kubernetes_io_fluxcd_io_kustomize
+          - __meta_kubernetes_pod_annotation_kubernetes.io_gke_metadata_server
+          - __meta_kubernetes_pod_annotation_kubernetes.io_imagename_kubernetes_io_workload_id
+          - __meta_kubernetes_pod_annotation_kubernetes.io_jaeger_com_trace
+          - __meta_kubernetes_pod_annotation_kubernetes.io_jaeger_com_instrument
+          - __meta_kubernetes_pod_annotation_kubernetes.io_jaeger_com_sampling
+          - __meta_kubernetes_pod_annotation_kubernetes.io_keda_shim_event
+          - __meta_kubernetes_pod_annotation_kubernetes.io_keda_shim_source_type
+          - __meta_kubernetes_pod_annotation_kubernetes_io_kubeedge_deployment_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_kubeedge_node_name
+          - __meta_kubernetes_pod_annotation_kubernetes.io_kuberos_kuberos_domain
+          - __meta_kubernetes_pod_annotation_kubernetes.io_kuberos_kuberos_host_os
+          - __meta_kubernetes_pod_annotation_kubernetes_io_kuberos_kuberos_host_username
+          - __meta_kubernetes_pod_annotation_kubernetes_io_kuberos_kuberos_host_uid
+          - __meta_kubernetes_pod_annotation_kubernetes_io_kuberos_kuberos_host_os
+          - __meta_kubernetes_pod_annotation_kubernetes_io_kuberos_kuberos_host_os
+          - __meta_kubernetes_pod_annotation_kubernetes_io_kuberos_kuberos_host_os
+          - __meta_kubernetes_pod_annotation_kubernetes.io_kuberos_kuberos_host_uid
+          - __meta_kubernetes_pod_annotation_kubernetes_io_kuberos_kuberos_host_username
+          - __meta_kubernetes_pod_annotation_kubernetes_io_kuberos_kuberos_host_username
+          - __meta_kubernetes_pod_annotation_kubernetes_io_kuberos_kuberos_host_uid
+          - __meta_kubernetes_pod_annotation_kubernetes.io_kuberos_kuberos_host_os
+          - __meta_kubernetes_pod_annotation_kubernetes.io_kuberos_kuberos_host_domain
+          - __meta_kubernetes_pod_annotation_kubernetes.io_operator_webhook_name
+          - __meta_kubernetes_pod_annotation_kubernetes.io_operator_webhook_namespace
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_namespace
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_config_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_runner
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_source
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_jenkins_pipeline_strategy
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_jenkins_buildcause
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_jenkins_buildnumber
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_jenkins_buildtag
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_logs_project
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_logs_url
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_commit_sha
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_commit_ref
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_commit_author
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_commit_message
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_change_author
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_change_message
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_image
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_image_id
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_image_labels
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_jenkins_message
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_jenkins_output_log
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_jenkins_error_log
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_jenkins_proxy_log
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_jenkins_uid
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_jenkins_user
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_build_jenkins_request_id
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_jenkins_requestor
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_io_build_config_spec
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_project
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_project_display_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_openshift_io_project_requester
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_provision_builder
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift_provision_builder
+          - __meta_kubernetes_pod_annotation_kubernetes.io_security_isolation_compliance_level
+          - __meta_kubernetes_pod_annotation_kubernetes.io_service_ca_cert
+          - __meta_kubernetes_pod_annotation_kubernetes_io_serviceaccount_token
+          - __meta_kubernetes_pod_annotation_kubernetes_io_serviceaccount_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_tekton_dev_space
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_usage_mode
+          - __meta_kubernetes_pod_annotation_kubernetes.io_vault_secret_version
+          - __meta_kubernetes_pod_annotation_kubernetes.io_vault_secret_namespace
+          - __meta_kubernetes_pod_annotation_kubernetes.io_vault_secret_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_resource_version
+          - __meta_kubernetes_pod_annotation_kubernetes.io_vault_secret_mount_path
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_init_container
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_readonly
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_uuid
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_predefined_annotations
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_version_epoch
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_sync_epoch
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_sync_version
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_transit_epoch
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_renew_epoch
+          - __meta_kubernetes_pod_annotation_kubernetes.io_vault_secret_renew_status
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_renew_error
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_storage_location
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_mfa
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_backup_version
+          - __meta_kubernetes_pod_annotation_kubernetes.io_vault_secret_restore_init
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_restore_status
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_restore_error
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_storage_class
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_created_timestamp
+          - __meta_kubernetes_pod_annotation_kubernetes.io_vault_secret_last_modified_epoch
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_version_created_timestamp
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_deleted_timestamp
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_deleted_permanently
+          - __meta_kubernetes_pod_annotation_kubernetes.io_vault_secret_destroyed_timestamp
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_destroy_epoch
+          - __meta_kubernetes_pod_annotation_kubernetes.io_vault_secret_deleted_permanently
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_destroy_version
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_protection
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_auto_rotate
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_auto_rotate_period
+          - __meta_kubernetes_pod_annotation_kubernetes.io_vault_secret_next_rotate_time
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_auto_rotate_backend
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_queue_reg
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_queue_version
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_queue_len
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_secret_last_rotate_time
+          - __meta_kubernetes_pod_annotation_kubernetes.io_vault_secret_last_rotate_error
+          - __meta_kubernetes_pod_annotation_kubernetes_io_weave_workload
+          - __meta_kubernetes_pod_annotation_kubernetes.io_weave_workload_namespace
+          - __meta_kubernetes_pod_annotation_kubernetes.io_weave_workload_pod_id
+          - __meta_kubernetes_pod_annotation_kubernetes.io_kuma_io_gateway_name
+          - __meta_kubernetes_pod_annotation_kubernetes.io_kuma_io_gateway_namespace
+          - __meta_kubernetes_pod_annotation_kubernetes_io_kong_ingress_controller_http2crt_id
+          - __meta_kubernetes_pod_annotation_kubernetes.io_kong_ingress_controller_https_ocsp_id
+          - __meta_kubernetes_pod_annotation_kubernetes.io_kong_ingress_controller_https_sni_id
+          - __meta_kubernetes_pod_annotation_kubernetes.io_kong_ingress_controller_http01_crt_id
+          - __meta_kubernetes_pod_annotation_kubernetes.io_kong_ingress_controller_https01_sni_id
+          - __meta_kubernetes_pod_annotation_kubernetes.io_moderneist_moderneist_jsf_layer
+          - __meta_kubernetes_pod_annotation_kubernetes.io_moderneist_moderneist_reasoning_service
+          - __meta_kubernetes_pod_annotation_kubernetes.io_nats_io_operator
+          - __meta_kubernetes_pod_annotation_kubernetes.io_openshift.io_built_from
+          - __meta_kubernetes_pod_annotation_kubernetes.io_operator_tower_com_nginx_certs
+          - __meta_kubernetes_pod_annotation_kubernetes.io_osm_operator_webhook_name
+          - __meta_kubernetes_pod_annotation_kubernetes.io_osm_operator_webhook_namespace
+          - __meta_kubernetes_pod_annotation_kubernetes.io_osm_operator_webhook_type
+          - __meta_kubernetes_pod_annotation_kubernetes.io_osm_operator_webhook_type_admission_webhook
+          - __meta_kubernetes_pod_annotation_kubernetes.io_osm_operator_webhook_type_mutating_webhook
+          - __meta_kubernetes_pod_annotation_kubernetes.io_osm_operator_webhook_type_validating_webhook
+          - __meta_kubernetes_pod_annotation_kubernetes.io_osm_operator_webhook_type_conversion_webhook
+          - __meta_kubernetes_pod_annotation_kubernetes.io_osm_operator_webhook_type_generic_webhook
+          - __meta_kubernetes_pod_annotation_kubernetes.io_spiffe_io_spiffeid
+          - __meta_kubernetes_pod_annotation_kubernetes.io_spiffe_io_trustdomain
+          - __meta_kubernetes_pod_annotation_kubernetes.io_traffic_manager_endpoint_url
+          - __meta_kubernetes_pod_annotation_kubernetes_io_traefik_port
+          - __meta_kubernetes_pod_annotation_kubernetes_io_traefik_protocol
+          - __meta_kubernetes_pod_annotation_kubernetes_io_traefik_weight
+          - __meta_kubernetes_pod_annotation_kubernetes.io_traefik_enable_metrics
+          - __meta_kubernetes_pod_annotation_kubernetes_io_traefik_service
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_token_vault_transit
+          - __meta_kubernetes_pod_annotation_kubernetes_io_vault_token_vault_transit
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtsuid
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtsuuid
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_policy_engine_admission_status
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_loaded_time
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_version
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtsq_version
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_load_policy
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vtspolicy_loaded
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtslog_level
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vtslog_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtslog_version
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtslog_level
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtslog_mode
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vtsconcurrency
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtscontext
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_in_sync
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_session_cache_timeout
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtscache_purge
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vtscache_ttl
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtscache_max
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vtscache_bootstrap
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtscache_entries
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtscache_sync_policy
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vtscache_sync
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtscache_sync_stats
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtscache_sync_data
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_total_hits
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_total_misses
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_total_errors
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_policy_version_hash
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtsengine_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtsengine_version
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtsengine_hash
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vtsengine_time
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_app_name
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_app_version
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_app_hash
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vtsapp_time
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_version
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_version_hash
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_version_time
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_scopes
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_memory_usage
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_last_flush
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_redis_connects
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_redis_pool
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_cache_hit_ratio
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_thread_usage
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_webhook_stats
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_application_stats
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_blocked_policies
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_bypass_stats
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_data_usage
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_number_of_policies
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_error_count
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_jvm_current_memory
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_jvm_peak_memory
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_jvm_free_memory
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_jvm_total_memory
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_java_memory_usage
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_env_environment
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_env_properties_count
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_env_versions
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_env_os
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_env_arch
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_env_available_processors
+          __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_env_system_load_average
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_env_disk_usage
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_env_disk_total
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_env_disk_free
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_file_descriptors
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_network_interfaces
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_network_bytes_sent
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_network_bytes_received
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_network_packets_sent
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_network_packets_received
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_node_id
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_build_info
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_plugin_count
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_cpu_usage
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_operating_system
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_platform
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_timezone
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_container_id
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_container_image
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_container_name
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_container_image_id
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_container_runtime
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_secrets_mounted
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_config_mounted
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_volume_mounts
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_volumes_mounted
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_networks
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_processes
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_sandbox_containers
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_kernel_capabilities
+          - __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_core_capabilities
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_processes_count
+          - __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_cpu_shares
+          __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_cpu_time
+          __meta_kubernetes_pod_annotation_kubernetes_io_wingetcorp_com_enforcer_vts_user_cpu_time
+          __meta_kubernetes_pod_annotation_kubernetes.io_wingetcorp_com_enforcer_vts_system_cpu_time
+          - action: replace
+            source_labels:
+            - __meta_kubernetes_pod_name
+            - __meta_kubernetes_pod_container_name
+          target_label: __meta_kubernetes_pod_label_app
+          - action: replace
+            source_labels:
+            - __meta_kubernetes_pod_container_name
+            - __meta_kubernetes_pod_container_name
+          target_label: __meta_kubernetes_pod_label_container_name
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+
+      - job_name: varlogs
+        static_configs:
+          - targets:
+              - localhost
+        labels:
+            job: varlogs
+            __path__: /var/log/*log
+
+    # Enable the Promtail tailing library
+    server:
+      log_level: info
+      http_server_port: 3101
+      grpc_server_port: 0
+
+---
+# Prometheus ServiceAccount and RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+    environment: local
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+    environment: local
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: loki
+  namespace: monitoring
+  labels:
+    app: loki
+    environment: local
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: promtail
+  namespace: monitoring
+  labels:
+    app: promtail
+    environment: local
+---
+# Prometheus ClusterRole for API access
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+  labels:
+    app: prometheus
+    environment: local
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/metrics
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources:
+  - replicasets
+  - deployments
+  - statefulsets
+  - daemonsets
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+  labels:
+    app: prometheus
+    environment: local
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: monitoring
+---
+# Loki ClusterRole for API access
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: loki
+  labels:
+    app: loki
+    environment: local
+rules:
+- apiGroups: [""]
+  resources:
+  - namespaces
+  - pods
+  - pods/log
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: loki
+  labels:
+    app: loki
+    environment: local
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: loki
+subjects:
+- kind: ServiceAccount
+  name: loki
+  namespace: monitoring
+---
+# Network Policy for monitoring
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-network-policy
+  namespace: monitoring
+  labels:
+    app: monitoring
+    environment: local
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    # Allow traffic from ml-emotion namespace to monitoring services
+    - namespaceSelector:
+        matchLabels:
+          name: ml-emotion
+    # Allow traffic from monitoring to ml-emotion for metrics scraping
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    # Allow traffic from kube-system namespace
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+  - ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 8000
+    - protocol: TCP
+      port: 9090
+    - protocol: TCP
+      port: 3100
+    - protocol: TCP
+      port: 9096
+    - protocol: TCP
+      port: 3101
+---
+# Prometheus Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+    environment: local
+    service: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+      environment: local
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        environment: local
+        service: prometheus
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: prometheus
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.40.7
+        imagePullPolicy: Always
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus/'
+          - '--web.console.libraries=/etc/prometheus/console_libraries'
+          - '--web.console.templates=/etc/prometheus/consoles'
+          - '--storage.tsdb.retention.time=7d'
+          - '--web.enable-lifecycle'
+          - '--storage.tsdb.wal-compression'
+          - '--web.enable-admin-api'
+          - '--web.external-url=http://127.0.0.1:30000'
+        ports:
+        - containerPort: 9090
+          name: http
+        env:
+        - name: AWS_REGION
+          value: "us-east-1"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus/
+          readOnly: true
+        - name: prometheus-storage
+          mountPath: /prometheus/
+        - name: prometheus-rules
+          mountPath: /etc/prometheus/rules/
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 9090
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: prometheus-storage
+        persistentVolumeClaim:
+          claimName: prometheus-pvc
+      - name: prometheus-rules
+        configMap:
+          name: prometheus-config
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+---
+# Prometheus Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+    environment: local
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  selector:
+    app: prometheus
+      environment: local
+---
+# Prometheus Persistent Volume Claim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+  namespace: monitoring
+  labels:
+    app: prometheus
+    environment: local
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+      requests:
+        storage: 10Gi
+---
+# Grafana Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+    environment: local
+    service: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+      environment: local
+  template:
+    metadata:
+      labels:
+        app: grafana
+        environment: local
+        service: grafana
+    spec:
+      serviceAccountName: grafana
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: "admin"
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: "admin123"
+        - name: GF_SECURITY_ADMIN_EMAIL
+          value: "admin@local.dev"
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-piechart-panel,grafana-worldmap-panel,grafana-clock-panel,grafana-simple-json-datasource"
+        - name: GF_PATHS_PLUGINS
+          value: "/var/lib/grafana/plugins"
+        - name: GF_PATHS_DATA
+          value: "/var/lib/grafana"
+        - name: GF_PATHS_LOGS
+          value: "/var/log/grafana"
+        - name: GF_PATHS_PROVISIONING
+          value: "/etc/grafana/provisioning"
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "true"
+        - name: GF_AUTH_ORG_ROLE
+          value: "Admin"
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+          value: "/var/lib/grafana/dashboards"
+        - name: GF_SECURITY_ALLOW_EMBEDDING
+          value: "true"
+        - name: GF_SERVER_HTTP_PORT
+          value: "3000"
+        - name: GF_SERVER_DOMAIN
+          value: "localhost"
+        - name: GF_SMTP_ENABLED
+          value: "false"
+        - name: GF_LOG_LEVEL
+          value: "info"
+        - name: GF_LOG_MODE
+          value: "console"
+        - name: GF_PATHS_PLUGINS_TEMP
+          value: "/tmp"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "400m"
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+        - name: grafana-provisioning
+          mountPath: /etc/grafana/provisioning
+          readOnly: true
+        - name: grafana-datasources
+          mountPath: /etc/grafana/provisioning/datasources
+          readOnly: true
+        - name: grafana-dashboards
+          mountPath: /var/lib/grafana/dashboards
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 472
+          runAsGroup: 472
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: grafana-storage
+        persistentVolumeClaim:
+          claimName: grafana-pvc
+      - name: grafana-provisioning
+        emptyDir: {}
+      - name: grafana-datasources
+        configMap:
+          name: grafana-datasources
+      - name: grafana-dashboards
+        configMap:
+          name: grafana-dashboards
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+---
+# Grafana Service (NodePort for external access)
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+    environment: local
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+    nodePort: 30000
+  selector:
+    app: grafana
+      environment: local
+---
+# Grafana Persistent Volume Claim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: monitoring
+  labels:
+    app: grafana
+    environment: local
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+      requests:
+        storage: 5Gi
+---
+# Loki Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: monitoring
+  labels:
+    app: loki
+    environment: local
+    service: loki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+      environment: local
+  template:
+    metadata:
+      labels:
+        app: loki
+        environment: local
+        service: loki
+    spec:
+      serviceAccountName: loki
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: loki
+        image: grafana/loki:2.8.2
+        imagePullPolicy: Always
+        args:
+          - "-config.file=/etc/loki/local/config.yaml"
+        ports:
+        - containerPort: 3100
+          name: http
+        - containerPort: 9096
+          name: grpc
+        env:
+        - name: AWS_REGION
+          value: "us-east-1"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+        - name: loki-config
+          mountPath: /etc/loki
+          readOnly: true
+        - name: loki-storage
+          mountPath: /loki
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 3100
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 3100
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: loki-config
+        configMap:
+          name: loki-config
+      - name: loki-storage
+        persistentVolumeClaim:
+          claimName: loki-pvc
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+---
+# Loki Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: monitoring
+  labels:
+    app: loki
+    environment: local
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 3100
+    targetPort: 3100
+    protocol: TCP
+  - name: grpc
+    port: 9096
+    targetPort: 9096
+    protocol: TCP
+  selector:
+    app: loki
+      environment: local
+---
+# Loki Persistent Volume Claim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-pvc
+  namespace: monitoring
+  labels:
+    app: loki
+    environment: local
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+      requests:
+        storage: 5Gi
+---
+# Node Exporter DaemonSet
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels:
+    app: node-exporter
+    environment: local
+spec:
+  selector:
+      matchLabels:
+        app: node-exporter
+        environment: local
+  template:
+      metadata:
+        labels:
+          app: node-exporter
+          environment: local
+      spec:
+        serviceAccountName: prometheus
+        hostPID: true
+        hostNetwork: true
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+        containers:
+        - name: node-exporter
+          image: prom/node-exporter:v1.3.1
+          imagePullPolicy: Always
+          args:
+            - "--path.rootfs=/host"
+            - "--path.procfs=/host/proc"
+            - "--path.sysfs=/host/sys"
+            - "--path.rootfs=/host"
+            - "--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var|host|etc)($|/)"
+            - "--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|cgroup|config|debugfs|devpts|efivarfs|fuse|fusectl|hugetlbfs|nfs|overlayfs|proc|proc|run|secrets|sys|tmp|var|devpts|devtmp|squashfs|tracefs|fuse.tctl|devpts|devtmp|fusectl|auto.devpts|pts|udev|shm|swap|sysfs)($|/)"
+          ports:
+          - containerPort: 9100
+            name: http
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          volumeMounts:
+          - name: root
+            mountPath: /host
+            readOnly: true
+          - name: proc
+            mountPath: /host/proc
+            readOnly: true
+          - name: sys
+            mountPath: /host/sys
+            readOnly: true
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            add:
+            - SYS_TIME
+            - CAP_DAC_READ_SEARCH
+          drop:
+            - ALL
+          readOnlyRootFilesystem: false
+        volumes:
+        - name: root
+          hostPath: /
+          readOnly: true
+        - name: proc
+          hostPath: /proc
+          readOnly: true
+        - name: sys
+          hostPath: /sys
+          readOnly: true
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+---
+# Promtail Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promtail
+  namespace: monitoring
+  labels:
+    app: promtail
+    environment: local
+    service: promtail
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: promtail
+      environment: local
+  template:
+    metadata:
+      labels:
+        app: promtail
+        environment: local
+    spec:
+      serviceAccountName: promtail
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: promtail
+        image: grafana/promtail:2.8.0
+        imagePullPolicy: Always
+        args:
+          - "-config.file=/etc/promtail/config.yaml"
+        ports:
+        - containerPort: 3101
+          name: http
+        env:
+        - name: AWS_REGION
+          value: "us-east-1"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: promtail-config
+          mountPath: /etc/promtail
+          readOnly: true
+        - name: varlog
+          mountPath: /var/log
+          readOnly: true
+        - name: positions
+          mountPath: /tmp/positions
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 3101
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3101
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeScale: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        volumes:
+        - name: promtail-config
+          configMap:
+          name: promtail-config
+        - name: varlog
+          hostPath: /var/log
+          readOnly: true
+        - name: positions
+          emptyDir: {}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+---
+# Promtail Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: promtail
+  namespace: monitoring
+  labels:
+    app: promtail
+    environment: local
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 3101
+    targetPort: 3101
+    protocol: TCP
+  selector:
+      app: promtail
+      environment: local

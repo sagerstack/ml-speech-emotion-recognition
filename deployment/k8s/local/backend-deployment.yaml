@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: ml-emotion
+  labels:
+    app: ml-speech-emotion-recognition
+    service: backend
+    environment: local
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ml-speech-emotion-recognition
+      service: backend
+  template:
+    metadata:
+      labels:
+        app: ml-speech-emotion-recognition
+        service: backend
+        environment: local
+    spec:
+      containers:
+      - name: backend
+        image: sagerstack/ml-speech-emotion-recognition-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: DEBUG
+          value: "true"
+        - name: HOST
+          value: "0.0.0.0"
+        - name: PORT
+          value: "8000"
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: SAGEMAKER_ENDPOINT_NAME
+          value: "test-emotion-endpoint"
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: secret-key
+        - name: MAX_UPLOAD_SIZE_MB
+          value: "30"
+        - name: MAX_AUDIO_DURATION_SECONDS
+          value: "30"
+        - name: PROMETHEUS_ENABLED
+          value: "true"
+        - name: METRICS_PORT
+          value: "9090"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: ml-emotion
+  labels:
+    app: ml-speech-emotion-recognition
+    service: backend
+    environment: local
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  selector:
+    app: ml-speech-emotion-recognition
+    service: backend
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-secrets
+  namespace: ml-emotion
+  labels:
+    app: ml-speech-emotion-recognition
+    service: backend
+    environment: local
+type: Opaque
+stringData:
+  secret-key: "test-dev-secret-key-for-local-testing-only"

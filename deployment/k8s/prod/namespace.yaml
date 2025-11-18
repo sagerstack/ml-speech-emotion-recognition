@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-emotion-prod
+  labels:
+    app: ml-speech-emotion-recognition
+    environment: production
+    team: ml-platform
+    cost-center: engineering
+spec:
+  finalizers:
+  - kubernetes

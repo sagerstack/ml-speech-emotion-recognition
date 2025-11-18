@@ -1,0 +1,134 @@
+[tool.poetry]
+name = "ml-emotion-api"
+version = "1.0.0"
+description = "FastAPI backend for ML Speech Emotion Recognition with AWS SageMaker integration"
+authors = ["Sagar Pratap Singh"]
+readme = "README.md"
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+# Core FastAPI dependencies
+fastapi = "^0.115.0"
+uvicorn = {extras = ["standard"], version = "^0.32.0"}
+websockets = "^13.1"
+
+# Audio processing
+librosa = "^0.11.0"
+soundfile = "^0.13.1"
+
+# AWS and SageMaker
+boto3 = "^1.35.0"
+sagemaker = "^2.232.0"
+
+# Authentication and security
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-multipart = "^0.0.12"
+
+# Data validation and serialization
+pydantic = "^2.10.0"
+pydantic-settings = "^2.6.0"
+
+# Monitoring and logging
+prometheus-client = "^0.21.0"
+structlog = "^24.4.0"
+
+# HTTP client for URL-based predictions
+httpx = "^0.28.0"
+
+# Development and testing dependencies
+[tool.poetry.group.dev.dependencies]
+# Testing framework
+pytest = "^8.3.0"
+pytest-asyncio = "^0.24.0"
+pytest-cov = "^6.0.0"
+pytest-mock = "^3.14.0"
+pytest-xdist = "^3.6.0"
+pytest-httpx = "^0.35.0"
+
+# HTTP testing
+httpx = "^0.28.0"
+
+# AWS testing and mocking
+moto = {extras = ["s3", "sagemaker"], version = "^5.0.0"}
+botocore = "^1.35.0"
+
+# Test data generation
+factory-boy = "^3.3.0"
+faker = "^30.0.0"
+
+# Code quality tools
+black = "^24.10.0"
+ruff = "^0.8.0"
+mypy = "^1.13.0"
+pre-commit = "^4.0.0"
+bandit = "^1.8.0"
+
+[tool.poetry.scripts]
+api = "app.main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+# Ruff configuration for linting and formatting
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4", "UP"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# Black configuration
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=app --cov-report=term-missing --cov-report=html"
+asyncio_mode = "auto"
+
+# Bandit security configuration
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101", "B601", "B104"]

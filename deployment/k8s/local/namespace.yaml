@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-emotion
+  labels:
+    app: ml-speech-emotion-recognition
+    environment: local
+spec:
+  finalizers:
+  - kubernetes
