@@ -1,0 +1,12 @@
+# SageMaker Container Requirements
+# These are the Python packages needed inside the SageMaker container
+
+torch>=2.1.0
+torchaudio>=2.1.0
+transformers>=4.37.0
+librosa>=0.10.0
+numpy>=1.24.0
+scipy>=1.11.0
+soundfile>=0.12.0
+boto3>=1.34.0
+sagemaker>=2.226.0
