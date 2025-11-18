@@ -1,0 +1,57 @@
+[tool.poetry]
+name = "sagemaker-deployment"
+version = "0.1.0"
+description = "SageMaker deployment module for speech emotion recognition model"
+authors = ["Sagar Pratap Singh <sagar@example.com>"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+sagemaker = "^2.226.0"
+boto3 = "^1.34.0"
+transformers = "^4.37.0"
+torch = "^2.1.0"
+torchaudio = "^2.1.0"
+librosa = "^0.10.1"
+numpy = "^1.24.0"
+pydantic = "^2.5.0"
+pyyaml = "^6.0.1"
+requests = "^2.31.0"
+botocore = "^1.34.0"
+python-dotenv = "^1.0.0"
+aiohttp = "^3.9.0"
+aiofiles = "^23.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+pytest-mock = "^3.12.0"
+black = "^23.12.0"
+ruff = "^0.1.0"
+mypy = "^1.8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "B", "C90"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--cov=. --cov-report=html --cov-report=term-missing"

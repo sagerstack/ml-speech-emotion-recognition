@@ -41,8 +41,8 @@ description: "Task list for AWS SageMaker Model Deployment + FastAPI Backend fea
 - [x] T001 Create project directory structure per implementation plan (backend/, frontend/, deployment/, docs/)
 - [x] T002 Initialize Python backend with Poetry and FastAPI dependencies
 - [x] T003 Initialize TypeScript React dashboard with npm and dependencies
-- [ ] T004 Initialize Streamlit interface with requirements.txt
-- [ ] T005 [P] Configure Python linting and formatting (ruff, black, mypy) in backend/pyproject.toml
+- [x] T004 Initialize Streamlit interface with Poetry dependencies in pyproject.toml
+- [x] T005 [P] Configure Python linting and formatting (ruff, black, mypy) in backend/pyproject.toml
 - [ ] T006 [P] Configure TypeScript ESLint and Prettier in frontend/react_dashboard/
 - [ ] T007 Create Docker configuration files for backend and frontend services
 - [ ] T008 Create Minikube and EKS Kubernetes manifests
@@ -246,7 +246,12 @@ description: "Task list for AWS SageMaker Model Deployment + FastAPI Backend fea
 - [ ] T097 [P] Create EKS production deployment configurations
 - [ ] T098 [P] Setup monitoring stack (Grafana + Prometheus + Loki)
 - [ ] T099 [P] Create deployment scripts and CI/CD pipeline
-- [ ] T100 Deploy Hugging Face model to SageMaker serverless endpoint
+- [ ] T100 [HUGGINGFACE] Deploy HuggingFace wav2vec2 emotion recognition model to SageMaker serverless endpoint
+  - **Reference**: See detailed implementation plan in `model-deployment-tasks.md`
+  - **Model**: `ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition` (0.3B parameters)
+  - **Configuration**: 2GB memory, 2 max concurrency, 60s timeout
+  - **Purpose**: Cost-effective experimentation with speech emotion recognition
+  - **Cost Target**: <$10/month for experimental workloads
 - [ ] T101 Configure auto-scaling and serverless inference settings
 - [ ] T102 Setup monitoring dashboards and alerting rules
 
