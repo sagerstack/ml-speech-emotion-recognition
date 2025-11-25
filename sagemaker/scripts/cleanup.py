@@ -261,6 +261,105 @@ class SageMakerCleanup:
             logger.error(f"Failed to delete endpoint {endpoint_name}: {e}")
             return False
 
+    def disable_endpoint_for_cleanup(self, endpoint_name: str, force: bool = False) -> bool:
+        """
+        Disable endpoint for temporary cost savings (alternative to deletion).
+        This creates a disabled config with 0 instances.
+        """
+        try:
+            logger.info(f"Disabling endpoint for cleanup: {endpoint_name}")
+
+            # Get current endpoint info
+            try:
+                endpoint_response = self.sagemaker.describe_endpoint(EndpointName=endpoint_name)
+                current_config_name = endpoint_response['EndpointConfigName']
+                logger.info(f"  Current Status: {endpoint_response['EndpointStatus']}")
+                logger.info(f"  Current Config: {current_config_name}")
+            except Exception as e:
+                logger.warning(f"Could not get endpoint info: {e}")
+                return False
+
+            # Get current configuration
+            try:
+                config_response = self.sagemaker.describe_endpoint_config(EndpointConfigName=current_config_name)
+                original_variants = config_response.get('ProductionVariants', [])
+                current_instances = sum(variant.get('InitialInstanceCount', 0) for variant in original_variants)
+                logger.info(f"  Current Instances: {current_instances}")
+
+                if current_instances == 0:
+                    logger.info(f"  Endpoint {endpoint_name} already has 0 instances")
+                    return True
+
+            except Exception as e:
+                logger.warning(f"Could not get endpoint config info: {e}")
+                return False
+
+            # Create disabled configuration with 0 instances
+            disabled_config_name = f"{endpoint_name}-cleanup-disabled"
+            disabled_variants = []
+
+            for variant in original_variants:
+                disabled_variant = {
+                    "VariantName": variant["VariantName"],
+                    "InstanceType": variant["InstanceType"],
+                    "InitialInstanceCount": 0,
+                    "ModelName": variant["ModelName"]
+                }
+
+                # Preserve optional parameters
+                if "InitialVariantWeight" in variant:
+                    disabled_variant["InitialVariantWeight"] = variant["InitialVariantWeight"]
+                if "VolumeSizeInGB" in variant:
+                    disabled_variant["VolumeSizeInGB"] = variant["VolumeSizeInGB"]
+
+                disabled_variants.append(disabled_variant)
+
+            try:
+                self.sagemaker.create_endpoint_config(
+                    EndpointConfigName=disabled_config_name,
+                    ProductionVariants=disabled_variants
+                )
+                logger.info(f"  Created disabled config: {disabled_config_name}")
+            except Exception as e:
+                if "already exists" in str(e):
+                    logger.info(f"  Disabled config already exists: {disabled_config_name}")
+                else:
+                    logger.error(f"Failed to create disabled config: {e}")
+                    return False
+
+            # Update endpoint to use disabled configuration
+            self.sagemaker.update_endpoint(
+                EndpointName=endpoint_name,
+                EndpointConfigName=disabled_config_name
+            )
+            logger.info(f"✅ Endpoint {endpoint_name} disabled (0 instances)")
+            logger.info(f"   Original config preserved: {current_config_name}")
+            logger.info(f"   Use reenable_endpoint.py to restore")
+
+            # Save disable info for re-enabling
+            disable_info = {
+                "endpoint_name": endpoint_name,
+                "original_config_name": current_config_name,
+                "original_variants": original_variants,
+                "disabled_config_name": disabled_config_name,
+                "disable_timestamp": datetime.utcnow().isoformat(),
+                "disable_reason": "cleanup_cost_savings"
+            }
+
+            disable_info_file = f"{endpoint_name}_cleanup_disabled_info.json"
+            try:
+                with open(disable_info_file, 'w') as f:
+                    json.dump(disable_info, f, indent=2, default=str)
+                logger.info(f"💾 Disable info saved to: {disable_info_file}")
+            except Exception as e:
+                logger.warning(f"Could not save disable info: {e}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to disable endpoint {endpoint_name}: {e}")
+            return False
+
     def delete_endpoint_config(self, config_name: str, force: bool = False) -> bool:
         """Delete an endpoint configuration."""
         try:
@@ -305,46 +404,58 @@ class SageMakerCleanup:
             logger.error(f"Failed to delete model {model_name}: {e}")
             return False
 
-    def cleanup_endpoint_chain(self, endpoint_name: str, delete_config: bool = True, delete_model: bool = True) -> bool:
-        """Clean up an endpoint and its associated config and model."""
+    def cleanup_endpoint_chain(self, endpoint_name: str, delete_config: bool = True, delete_model: bool = True, disable_only: bool = False) -> bool:
+        """
+        Clean up an endpoint and its associated config and model.
+
+        Args:
+            endpoint_name: Name of the endpoint to clean up
+            delete_config: Whether to delete the endpoint config
+            delete_model: Whether to delete the model
+            disable_only: If True, disable endpoint instead of deleting
+        """
         try:
-            logger.info(f"Cleaning up endpoint chain: {endpoint_name}")
-            success = True
+            if disable_only:
+                logger.info(f"Disabling endpoint chain for cost savings: {endpoint_name}")
+                return self.disable_endpoint_for_cleanup(endpoint_name)
+            else:
+                logger.info(f"Cleaning up endpoint chain (deleting): {endpoint_name}")
+                success = True
 
-            # Get endpoint config and model names before deleting endpoint
-            try:
-                endpoint_response = self.sagemaker.describe_endpoint(EndpointName=endpoint_name)
-                config_name = endpoint_response['EndpointConfigName']
+                # Get endpoint config and model names before deleting endpoint
+                try:
+                    endpoint_response = self.sagemaker.describe_endpoint(EndpointName=endpoint_name)
+                    config_name = endpoint_response['EndpointConfigName']
 
-                config_response = self.sagemaker.describe_endpoint_config(EndpointConfigName=config_name)
-                production_variants = config_response.get('ProductionVariants', [])
-                model_names = [variant['ModelName'] for variant in production_variants]
-            except Exception as e:
-                logger.warning(f"Could not get endpoint details: {e}")
-                config_name = None
-                model_names = []
+                    config_response = self.sagemaker.describe_endpoint_config(EndpointConfigName=config_name)
+                    production_variants = config_response.get('ProductionVariants', [])
+                    model_names = [variant['ModelName'] for variant in production_variants]
+                except Exception as e:
+                    logger.warning(f"Could not get endpoint details: {e}")
+                    config_name = None
+                    model_names = []
 
-            # Delete endpoint
-            if not self.delete_endpoint(endpoint_name):
-                success = False
-
-            # Delete endpoint config
-            if delete_config and config_name:
-                if not self.delete_endpoint_config(config_name):
+                # Delete endpoint
+                if not self.delete_endpoint(endpoint_name):
                     success = False
 
-            # Delete models
-            if delete_model:
-                for model_name in model_names:
-                    if not self.delete_model(model_name):
+                # Delete endpoint config
+                if delete_config and config_name:
+                    if not self.delete_endpoint_config(config_name):
                         success = False
 
-            if success:
-                logger.info(f"✅ Successfully cleaned up endpoint chain: {endpoint_name}")
-            else:
-                logger.error(f"❌ Partial cleanup for endpoint chain: {endpoint_name}")
+                # Delete models
+                if delete_model:
+                    for model_name in model_names:
+                        if not self.delete_model(model_name):
+                            success = False
 
-            return success
+                if success:
+                    logger.info(f"✅ Successfully cleaned up endpoint chain: {endpoint_name}")
+                else:
+                    logger.error(f"❌ Partial cleanup for endpoint chain: {endpoint_name}")
+
+                return success
 
         except Exception as e:
             logger.error(f"Failed to cleanup endpoint chain {endpoint_name}: {e}")
@@ -500,10 +611,13 @@ class SageMakerCleanup:
             return {}
 
     def full_cleanup(self, days_threshold: int = 30, usage_threshold: int = 10,
-                    dry_run: bool = True, force: bool = False) -> Dict[str, Any]:
+                    dry_run: bool = True, force: bool = False, disable_only: bool = False) -> Dict[str, Any]:
         """Perform full cleanup of unused resources."""
         try:
-            logger.info(f"🧹 Starting full cleanup...")
+            if disable_only:
+                logger.info(f"🔄 Starting full disable (cost savings mode)...")
+            else:
+                logger.info(f"🧹 Starting full cleanup...")
 
             if dry_run:
                 return self.dry_run_cleanup(days_threshold, usage_threshold)
@@ -511,8 +625,10 @@ class SageMakerCleanup:
             # Get unused resources
             unused_resources = self.identify_unused_resources(days_threshold, usage_threshold)
 
+            action = "disabled" if disable_only else "deleted"
             cleanup_results = {
                 "cleanup_timestamp": datetime.utcnow().isoformat(),
+                "action": "disable" if disable_only else "delete",
                 "criteria": {
                     "days_threshold": days_threshold,
                     "usage_threshold": usage_threshold
@@ -526,9 +642,9 @@ class SageMakerCleanup:
                 }
             }
 
-            # Clean up endpoints
+            # Clean up/disable endpoints
             for endpoint_name in unused_resources["endpoints"]:
-                if self.cleanup_endpoint_chain(endpoint_name):
+                if self.cleanup_endpoint_chain(endpoint_name, disable_only=disable_only):
                     cleanup_results["results"]["endpoints"]["success"].append(endpoint_name)
                 else:
                     cleanup_results["results"]["endpoints"]["failed"].append(endpoint_name)
@@ -585,14 +701,15 @@ class SageMakerCleanup:
 
 def main():
     """Main cleanup function."""
-    parser = argparse.ArgumentParser(description="Clean up SageMaker resources")
+    parser = argparse.ArgumentParser(description="Clean up or disable SageMaker resources")
     parser.add_argument("--config", type=str, default="../model-deployment/config.yaml", help="Configuration file path")
     parser.add_argument("--list", action="store_true", help="List all resources")
     parser.add_argument("--identify", action="store_true", help="Identify unused resources")
-    parser.add_argument("--endpoint", type=str, help="Delete specific endpoint")
-    parser.add_argument("--dry-run", action="store_true", help="Show what would be deleted without actually deleting")
+    parser.add_argument("--endpoint", type=str, help="Process specific endpoint")
+    parser.add_argument("--disable", action="store_true", help="Disable endpoint instead of deleting (for cost savings)")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be processed without actually processing")
     parser.add_argument("--cleanup", action="store_true", help="Perform full cleanup")
-    parser.add_argument("--force", action="store_true", help="Force deletion without prompts")
+    parser.add_argument("--force", action="store_true", help="Force operation without prompts")
     parser.add_argument("--days", type=int, default=30, help="Age threshold in days")
     parser.add_argument("--usage", type=int, default=10, help="Usage threshold (invocations)")
     parser.add_argument("--s3", action="store_true", help="Clean up S3 artifacts")
@@ -614,11 +731,17 @@ def main():
             print(json.dumps(unused, indent=2))
 
         elif args.endpoint:
-            success = cleanup.cleanup_endpoint_chain(args.endpoint, force=args.force)
+            action = "disabled" if args.disable else "cleaned up"
+            success = cleanup.cleanup_endpoint_chain(args.endpoint, force=args.force, disable_only=args.disable)
             if success:
-                print(f"✅ Endpoint {args.endpoint} cleaned up successfully")
+                if args.disable:
+                    print(f"✅ Endpoint {args.endpoint} disabled successfully (cost savings mode)")
+                    print(f"   Use reenable_endpoint.py to restore when needed")
+                else:
+                    print(f"✅ Endpoint {args.endpoint} cleaned up successfully")
             else:
-                print(f"❌ Failed to clean up endpoint {args.endpoint}")
+                operation = "disable" if args.disable else "clean up"
+                print(f"❌ Failed to {operation} endpoint {args.endpoint}")
 
         elif args.s3:
             success = cleanup.cleanup_s3_artifacts(days_threshold=args.days)
@@ -635,13 +758,22 @@ def main():
                 print("❌ Failed to clean up CloudWatch alarms")
 
         elif args.dry_run or args.cleanup:
+            action_type = "disable" if args.disable else "cleanup"
             results = cleanup.full_cleanup(
                 days_threshold=args.days,
                 usage_threshold=args.usage,
                 dry_run=args.dry_run,
-                force=args.force
+                force=args.force,
+                disable_only=args.disable
             )
-            print("Cleanup Results:")
+
+            if args.dry_run:
+                print("Dry Run Results:")
+            elif args.disable:
+                print("Disable Results:")
+            else:
+                print("Cleanup Results:")
+
             print(json.dumps(results, indent=2, default=str))
 
         else:
