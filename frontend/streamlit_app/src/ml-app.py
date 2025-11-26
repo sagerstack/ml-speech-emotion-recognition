@@ -1,10 +1,13 @@
 from datetime import datetime
 from pathlib import Path
+import io
 
 import plotly.graph_objects as go
 import streamlit as st
 import streamlit_antd_components as stac
 import pandas as pd
+import numpy as np
+import librosa
 
 import os
 from feature_charts import heatmap_chart, probability_bar, waveform_chart
@@ -50,7 +53,7 @@ st.markdown(
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;600&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded');
-    html, body, [class*="st-"] {
+    html, body, .stApp {
         font-family: 'Inconsolata', monospace !important;
     }
     div.block-container {
@@ -85,17 +88,6 @@ st.markdown(
         display: inline-block;
         white-space: nowrap;
     }
-    [data-testid="collapsedControl"] button div p {
-        display: none !important;
-    }
-    [data-testid="collapsedControl"] button::after {
-        content: '⇤';
-        font-size: 1.3rem;
-        color: #be185d;
-    }
-    [data-testid="collapsedControl"] button[aria-expanded="false"]::after {
-        content: '⇥';
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -110,6 +102,79 @@ TAB_LABELS = [item.label for item in TAB_ITEMS]
 PAGE_KEY = "codex_iter5_result"
 TAB_INDEX_KEY = "codex_iter5_tab_index"
 STATUS_KEY = "codex_iter5_status"
+AUDIO_DATA_KEY = "codex_iter5_audio_data"
+AUDIO_FEATURES_KEY = "codex_iter5_feature_summary"
+
+
+def _load_audio_from_upload(file_obj) -> bytes:
+    """Read bytes from an UploadedFile or BytesIO and reset pointer."""
+    if hasattr(file_obj, "getbuffer"):
+        data = file_obj.getbuffer().tobytes()
+    else:
+        data = file_obj.read()
+    if hasattr(file_obj, "seek"):
+        try:
+            file_obj.seek(0)
+        except Exception:
+            pass
+    return data
+
+
+def _generate_local_features(audio_bytes: bytes, label: str, engine: str):
+    """Compute local visualizations and feature stats for the uploaded audio."""
+    y, sr = librosa.load(io.BytesIO(audio_bytes), sr=None)
+
+    # Normalize waveform length for display
+    max_wave_points = min(len(y), 4096)
+    waveform = y[:max_wave_points]
+
+    mel = librosa.power_to_db(
+        librosa.feature.melspectrogram(y=y, sr=sr, n_mels=64, fmax=sr / 2),
+        ref=np.max,
+    )
+    spectrogram = librosa.amplitude_to_db(np.abs(librosa.stft(y, n_fft=512)), ref=np.max)
+    chroma = librosa.feature.chroma_stft(y=y, sr=sr)
+
+    # Feature summary
+    rms = float(librosa.feature.rms(y=y).mean())
+    centroid = float(librosa.feature.spectral_centroid(y=y, sr=sr).mean())
+    zcr = float(librosa.feature.zero_crossing_rate(y).mean())
+    pitch = float(librosa.yin(y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7')).mean())
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+    mfcc_std = float(np.std(mfcc))
+
+    feature_rows = [
+        ("RMS Energy", f"{rms:.3f}", "Linear"),
+        ("Spectral Centroid", f"{centroid:.1f} Hz", "Frequency"),
+        ("Zero Crossing Rate", f"{zcr:.3f}", "Rate"),
+        ("Pitch Mean", f"{pitch:.1f} Hz", "Frequency"),
+        ("MFCC Spread", f"{mfcc_std:.3f}", "Std Dev"),
+        ("Duration", f"{len(y)/sr:.1f} s", "Time"),
+    ]
+
+    feature_df = pd.DataFrame(feature_rows, columns=["Feature", "Value", "Units"])
+
+    return {
+        "label": label,
+        "engine": engine,
+        "sample_rate": sr,
+        "waveform": waveform,
+        "mel": mel,
+        "spectrogram": spectrogram,
+        "chroma": chroma,
+        "feature_table": feature_df,
+    }
+
+
+def _store_audio_state(audio_bytes: bytes, label: str, engine: str, features: dict):
+    """Persist audio bytes and computed features in session state."""
+    st.session_state[AUDIO_DATA_KEY] = {
+        "bytes": audio_bytes,
+        "filename": label,
+        "engine": engine,
+        "timestamp": datetime.utcnow().isoformat(timespec="seconds"),
+    }
+    st.session_state[AUDIO_FEATURES_KEY] = features
 
 
 def stage_audio_recording() -> AnalysisResult | None:
@@ -146,34 +211,82 @@ def stage_audio_recording() -> AnalysisResult | None:
                 st.warning("You need to supply a file or record audio.", icon="⚠️")
                 return None
 
-            # Get the active backend
-            backend = get_active_backend()
-
-            # Prepare audio source
             if upload:
                 audio_source = upload
-                label = upload.name
+                label = upload.name or "uploaded-audio.wav"
             else:
                 audio_source = recording
                 label = f"live-recording-{datetime.utcnow().strftime('%H%M%S')}"
 
             try:
-                # Show processing status
-                with st.spinner(f"Analyzing audio with {backend.__class__.__name__}..."):
-                    result = backend.analyze(audio_source, engine=engine)
+                audio_bytes = _load_audio_from_upload(audio_source)
+                with st.spinner("Computing local audio features..."):
+                    features = _generate_local_features(audio_bytes, label, engine)
 
-                # Store result
+                _store_audio_state(audio_bytes, label, engine, features)
+                st.session_state[STATUS_KEY] = f"🔬 {label} analyzed locally. Ready for inference."
+                st.session_state[PAGE_KEY] = None
+                st.session_state[TAB_INDEX_KEY] = 1
+                st.success(st.session_state[STATUS_KEY])
+                st.rerun()
+            except Exception as e:
+                error_msg = f"Failed to process audio locally: {str(e)}"
+                st.error(error_msg, icon="❌")
+                if SHOW_DEBUG_INFO:
+                    st.expander("Error Details").write(str(e))
+                return None
+
+    return st.session_state.get(AUDIO_FEATURES_KEY)
+
+
+def stage_feature_analysis(feature_summary: dict | None):
+    with st.container(border=True):
+        st.markdown("#### Stage 2 · Feature Analysis")
+        if feature_summary is None:
+            st.info("Complete Stage 1 to visualize features.")
+            return
+
+        status_message = st.session_state.get(STATUS_KEY)
+        if status_message:
+            st.success(status_message)
+
+        col1, col2 = st.columns([1.2, 1])
+        with col1:
+            st.plotly_chart(heatmap_chart(feature_summary["mel"], "Mel Spectrogram"), use_container_width=True)
+            st.plotly_chart(waveform_chart(feature_summary["waveform"]), use_container_width=True)
+        with col2:
+            st.dataframe(feature_summary["feature_table"], use_container_width=True, hide_index=True)
+            st.plotly_chart(heatmap_chart(feature_summary["spectrogram"], "Spectrogram"), use_container_width=True)
+
+        st.markdown("##### 🎛️ Chroma Features")
+        st.plotly_chart(heatmap_chart(feature_summary["chroma"], "Chroma"), use_container_width=True)
+
+        if st.button("🚀 Predict Emotion", key="predict-emotion-btn", type="primary"):
+            audio_blob = st.session_state.get(AUDIO_DATA_KEY)
+            if not audio_blob:
+                st.warning("Analyze audio first to enable prediction.", icon="⚠️")
+                return
+            backend = get_active_backend()
+            audio_bytes = audio_blob["bytes"]
+            engine = audio_blob["engine"]
+            filename = audio_blob["filename"]
+            try:
+                file_obj = io.BytesIO(audio_bytes)
+                file_obj.name = filename
+                with st.spinner("Sending audio to inference backend..."):
+                    result = backend.analyze(file_obj, engine=engine)
+
                 st.session_state[PAGE_KEY] = result
-                st.session_state[STATUS_KEY] = f"✅ {label} analyzed successfully using {engine}."
+                st.session_state[STATUS_KEY] = f"✅ {filename} processed via {engine}."
 
-                # Update history
+                # Update history after successful inference
                 use_real_backend, _, _ = get_backend_status()
                 history = st.session_state.setdefault("codex_iter5_history", [])
                 history.insert(
                     0,
                     {
                         "timestamp": datetime.utcnow().isoformat(timespec="seconds"),
-                        "source": label,
+                        "source": filename,
                         "engine": engine,
                         "emotion": result.emotion,
                         "confidence": result.confidence,
@@ -182,58 +295,14 @@ def stage_audio_recording() -> AnalysisResult | None:
                     },
                 )
                 st.session_state["codex_iter5_history"] = history[:25]
-                st.session_state[TAB_INDEX_KEY] = 1
 
+                st.session_state[TAB_INDEX_KEY] = 2
                 st.success(st.session_state[STATUS_KEY])
                 st.rerun()
-
             except Exception as e:
-                error_msg = f"Failed to analyze audio: {str(e)}"
-                st.error(error_msg, icon="❌")
-
-                # Show detailed error in debug mode
+                st.error(f"Failed to run inference: {str(e)}", icon="❌")
                 if SHOW_DEBUG_INFO:
                     st.expander("Error Details").write(str(e))
-
-                return None
-
-    return st.session_state.get(PAGE_KEY)
-
-
-def stage_feature_analysis(result: AnalysisResult | None):
-    with st.container(border=True):
-        st.markdown("#### Stage 2 · Feature Analysis")
-        if result is None:
-            st.info("Complete Stage 1 to visualize features.")
-            return
-        status_message = st.session_state.get(STATUS_KEY)
-        if status_message:
-            st.success(status_message)
-        col1, col2 = st.columns([1.2, 1])
-        with col1:
-            st.plotly_chart(heatmap_chart(result.visualizations["mel"], "Mel Spectrogram"), use_container_width=True)
-            st.plotly_chart(waveform_chart(result.visualizations["waveform"]), use_container_width=True)
-        with col2:
-            st.dataframe(result.feature_tracks, use_container_width=True, hide_index=True)
-            timeline_fig = go.Figure()
-            timeline_fig.add_trace(
-                go.Bar(
-                    x=[entry["phase"] for entry in result.timeline],
-                    y=[idx + 1 for idx, _ in enumerate(result.timeline)],
-                    marker=dict(color="#38bdf8"),
-                )
-            )
-            timeline_fig.update_layout(
-                height=220,
-                title="Processing Phases",
-                yaxis=dict(showticklabels=False),
-            )
-            st.plotly_chart(timeline_fig, use_container_width=True)
-
-        # Predict Emotion button
-        if st.button("🚀 Predict Emotion", key="predict-emotion-btn", type="primary"):
-            st.session_state[TAB_INDEX_KEY] = 2  # Switch to Step 3 tab (index 2)
-            st.rerun()
 
 
 def stage_inference_results(result: AnalysisResult | None):
@@ -366,17 +435,17 @@ Base URL: {ML_APP_BASE_URL}
     except ValueError:
         selected_index = current_index
     st.session_state[TAB_INDEX_KEY] = selected_index
-    result = st.session_state.get(PAGE_KEY)
+    inference_result = st.session_state.get(PAGE_KEY)
+    feature_summary = st.session_state.get(AUDIO_FEATURES_KEY)
+
     if tab_choice == "Step 1 · Audio Capture":
-        result = stage_audio_recording()
+        stage_audio_recording()
     elif tab_choice == "Step 2 · Feature Analysis":
-        stage_feature_analysis(result)
+        stage_feature_analysis(feature_summary)
     elif tab_choice == "Step 3 · Inference Results":
-        stage_inference_results(result)
+        stage_inference_results(inference_result)
     else:
-        result = stage_audio_recording()
-    if result is not None:
-        st.session_state[PAGE_KEY] = result
+        stage_audio_recording()
 
 
 if __name__ == "__main__":

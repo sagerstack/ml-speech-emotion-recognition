@@ -1,0 +1,123 @@
+name: Deploy to EKS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  K8S_NAMESPACE: ml-speech-emotion
+  EKS_CLUSTER_NAME: ml-speech-emotion-prod-eks
+  KUSTOMIZE_DIR: deployment/k8s/prod
+  BACKEND_REPO_NAME: ml-speech-emotion-backend
+  STREAMLIT_REPO_NAME: ml-speech-emotion-streamlit
+  POETRY_VERSION: "1.8.3"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    environment:
+      name: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: pipx install poetry==${{ env.POETRY_VERSION }}
+
+      - name: Install dependencies (backend + Streamlit)
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --only main --no-interaction --no-ansi
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute image URIs
+        id: image-uris
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BACKEND_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${BACKEND_REPO_NAME}"
+          STREAMLIT_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${STREAMLIT_REPO_NAME}"
+          echo "BACKEND_IMAGE=${BACKEND_IMAGE}" >> $GITHUB_ENV
+          echo "STREAMLIT_IMAGE=${STREAMLIT_IMAGE}" >> $GITHUB_ENV
+
+      - name: Build backend image
+        run: |
+          docker build \
+            -f deployment/docker/backend/Dockerfile \
+            -t "${BACKEND_IMAGE}:${GITHUB_SHA}" \
+            .
+          docker tag "${BACKEND_IMAGE}:${GITHUB_SHA}" "${BACKEND_IMAGE}:latest"
+
+      - name: Build Streamlit image
+        run: |
+          docker build \
+            -f deployment/docker/streamlit/Dockerfile \
+            -t "${STREAMLIT_IMAGE}:${GITHUB_SHA}" \
+            .
+          docker tag "${STREAMLIT_IMAGE}:${GITHUB_SHA}" "${STREAMLIT_IMAGE}:latest"
+
+      - name: Push backend image
+        run: |
+          docker push "${BACKEND_IMAGE}:${GITHUB_SHA}"
+          docker push "${BACKEND_IMAGE}:latest"
+
+      - name: Push Streamlit image
+        run: |
+          docker push "${STREAMLIT_IMAGE}:${GITHUB_SHA}"
+          docker push "${STREAMLIT_IMAGE}:latest"
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "latest"
+
+      - name: Install kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          version: "5.4.2"
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name "${{ env.EKS_CLUSTER_NAME }}" --region "${{ env.AWS_REGION }}"
+
+      - name: Set image tags in kustomization
+        working-directory: ${{ env.KUSTOMIZE_DIR }}
+        run: |
+          kustomize edit set image sagerstack/ml-speech-emotion-backend=${BACKEND_IMAGE}:${GITHUB_SHA}
+          kustomize edit set image sagerstack/ml-speech-emotion-streamlit=${STREAMLIT_IMAGE}:${GITHUB_SHA}
+
+      - name: Deploy manifests
+        run: kubectl apply -k ${{ env.KUSTOMIZE_DIR }}
+
+      - name: Verify backend rollout
+        run: kubectl rollout status deployment/backend -n ${{ env.K8S_NAMESPACE }} --timeout=180s
+
+      - name: Verify Streamlit rollout
+        run: kubectl rollout status deployment/streamlit -n ${{ env.K8S_NAMESPACE }} --timeout=180s
+
+      - name: Post-deploy smoke tests
+        run: |
+          BACKEND_URL=$(kubectl get svc backend -n ${{ env.K8S_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          if [ -n "$BACKEND_URL" ]; then
+            curl -fsSL "http://${BACKEND_URL}/health"
+          else
+            echo "Backend service has no external hostname yet; skipping health curl."
+          fi
