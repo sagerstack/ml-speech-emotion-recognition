@@ -57,6 +57,7 @@ def test_environment() -> None:
     os.environ["AWS_REGION"] = "us-east-1"
     os.environ["SAGEMAKER_ENDPOINT_NAME"] = "test-endpoint"
     os.environ["SECRET_KEY"] = "test-secret-key-for-jwt"
+    os.environ["S3_BUCKET_NAME"] = "your-s3-bucket-name"  # Default for tests
 
     # Disable actual AWS services during testing
     os.environ["AWS_ACCESS_KEY_ID"] = "testing"
