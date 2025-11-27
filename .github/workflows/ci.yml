@@ -89,8 +89,13 @@ jobs:
 
       - name: Test backend container starts
         run: |
-          # Start container (don't use --rm so we can get logs even if it crashes)
-          docker run -d --name backend-test -p 8000:8000 backend:ci-test
+          # Start container with minimal required environment variables
+          docker run -d --name backend-test -p 8000:8000 \
+            -e SECRET_KEY="ci-test-secret-key" \
+            -e AWS_REGION="us-east-1" \
+            -e SAGEMAKER_ENDPOINT_NAME="ci-test-endpoint" \
+            backend:ci-test
+
           CONTAINER_ID=$(docker ps -aq --filter name=backend-test)
           echo "Container ID: $CONTAINER_ID"
 
