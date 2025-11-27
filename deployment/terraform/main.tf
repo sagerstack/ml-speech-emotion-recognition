@@ -125,6 +125,95 @@ resource "aws_ecr_repository" "streamlit" {
   tags = local.tags
 }
 
+# ECR Lifecycle Policies for cost management
+resource "aws_ecr_lifecycle_policy" "backend" {
+  repository = aws_ecr_repository.backend.name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep last 10 PR images to save storage costs"
+        selection = {
+          tagPrefixList = ["pr-"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 10
+        }
+        action = {
+          type = "expire"
+        }
+      },
+      {
+        rulePriority = 2
+        description  = "Keep last 20 production images for rollback capability"
+        selection = {
+          tagStatus   = "tagged"
+          countType   = "imageCountMoreThan"
+          countNumber = 20
+        }
+        action = {
+          type = "expire"
+        }
+      },
+      {
+        rulePriority = 3
+        description  = "Always keep the latest tag"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["latest"]
+        }
+        action = {
+          type = "keep"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_ecr_lifecycle_policy" "streamlit" {
+  repository = aws_ecr_repository.streamlit.name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep last 10 PR images to save storage costs"
+        selection = {
+          tagPrefixList = ["pr-"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 10
+        }
+        action = {
+          type = "expire"
+        }
+      },
+      {
+        rulePriority = 2
+        description  = "Keep last 20 production images for rollback capability"
+        selection = {
+          tagStatus   = "tagged"
+          countType   = "imageCountMoreThan"
+          countNumber = 20
+        }
+        action = {
+          type = "expire"
+        }
+      },
+      {
+        rulePriority = 3
+        description  = "Always keep the latest tag"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["latest"]
+        }
+        action = {
+          type = "keep"
+        }
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role" "github_actions" {
   name = "${local.project_name}-${local.environment}-gh-deploy"
 

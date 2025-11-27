@@ -139,6 +139,7 @@ jobs:
           fi
 
   build-and-push:
+    if: github.ref == 'refs/heads/main'
     needs: [tests, terraform-format, validate-docker-builds]
     runs-on: ubuntu-latest
     permissions:
