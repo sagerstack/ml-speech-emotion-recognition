@@ -1,25 +1,21 @@
-# Streamlit application Dockerfile
+# Streamlit application Dockerfile - Optimized for minimal size
 FROM python:3.11-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1 \
-    POETRY_NO_INTERACTION=1 \
-    POETRY_VENV_IN_PROJECT=1 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install system dependencies for audio processing and Poetry
+# Install only essential system dependencies
+# - libsndfile1: Required by soundfile (librosa dependency) for audio file I/O
+# - curl: Required for Docker health checks
 RUN apt-get update && apt-get install -y \
     --no-install-recommends \
     libsndfile1 \
-    ffmpeg \
-    libsox-dev \
-    libsox-fmt-all \
     curl \
-    git \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir poetry==1.8.3
+    && rm -rf /var/lib/apt/lists/*
 
 # Set work directory
 WORKDIR /app
@@ -27,22 +23,23 @@ WORKDIR /app
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash streamlit
 
-# Copy root Poetry configuration (shared dependencies)
-COPY pyproject.toml poetry.lock ./
+# Copy only Streamlit-specific requirements file
+COPY frontend/streamlit_app/requirements.txt ./requirements.txt
 
 # Copy environment files (if they exist)
-COPY frontend/.env.example ./.env.example
-COPY frontend/.env.local ./.env.local
+COPY frontend/.env.example ./.env.example 2>/dev/null || true
+COPY frontend/.env.local ./.env.local 2>/dev/null || true
 
-# Install Python dependencies using Poetry
-RUN poetry config virtualenvs.create false \
-    && poetry install --only main --no-root --no-interaction --no-ansi
+# Install Python dependencies directly with pip (no Poetry overhead)
+# Using Streamlit-specific requirements instead of root pyproject.toml
+# This excludes heavyweight ML packages: tensorflow, keras, transformers, sagemaker, etc.
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY frontend/streamlit_app/ .
 
 # Set correct permissions
-RUN chown -R streamlit:streamlit /app /tmp/poetry_cache
+RUN chown -R streamlit:streamlit /app
 
 # Switch to non-root user
 USER streamlit
