@@ -12,7 +12,6 @@ env:
   KUSTOMIZE_DIR: deployment/k8s/prod
   BACKEND_REPO_NAME: ml-speech-emotion-backend
   STREAMLIT_REPO_NAME: ml-speech-emotion-streamlit
-  POETRY_VERSION: "1.8.3"
 
 jobs:
   deploy:
@@ -22,23 +21,12 @@ jobs:
       contents: read
     environment:
       name: production
+    # This workflow deploys pre-built Docker images from ECR
+    # Images are built and pushed by the CI workflow after all gates pass
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Poetry
-        run: pipx install poetry==${{ env.POETRY_VERSION }}
-
-      - name: Install dependencies (backend + Streamlit)
-        run: |
-          poetry config virtualenvs.in-project true
-          poetry install --only main --no-interaction --no-ansi
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -46,44 +34,23 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
 
-      - name: Log in to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Compute image URIs
+      - name: Compute image URIs and tags
         id: image-uris
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           BACKEND_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${BACKEND_REPO_NAME}"
           STREAMLIT_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${STREAMLIT_REPO_NAME}"
+
+          # Use same short SHA format as CI (first 7 chars)
+          IMAGE_TAG="${GITHUB_SHA:0:7}"
+
           echo "BACKEND_IMAGE=${BACKEND_IMAGE}" >> $GITHUB_ENV
           echo "STREAMLIT_IMAGE=${STREAMLIT_IMAGE}" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
 
-      - name: Build backend image
-        run: |
-          docker build \
-            -f deployment/docker/backend/Dockerfile \
-            -t "${BACKEND_IMAGE}:${GITHUB_SHA}" \
-            .
-          docker tag "${BACKEND_IMAGE}:${GITHUB_SHA}" "${BACKEND_IMAGE}:latest"
-
-      - name: Build Streamlit image
-        run: |
-          docker build \
-            -f deployment/docker/streamlit/Dockerfile \
-            -t "${STREAMLIT_IMAGE}:${GITHUB_SHA}" \
-            .
-          docker tag "${STREAMLIT_IMAGE}:${GITHUB_SHA}" "${STREAMLIT_IMAGE}:latest"
-
-      - name: Push backend image
-        run: |
-          docker push "${BACKEND_IMAGE}:${GITHUB_SHA}"
-          docker push "${BACKEND_IMAGE}:latest"
-
-      - name: Push Streamlit image
-        run: |
-          docker push "${STREAMLIT_IMAGE}:${GITHUB_SHA}"
-          docker push "${STREAMLIT_IMAGE}:latest"
+          echo "Deploying images with tag: ${IMAGE_TAG}"
+          echo "Backend: ${BACKEND_IMAGE}:${IMAGE_TAG}"
+          echo "Streamlit: ${STREAMLIT_IMAGE}:${IMAGE_TAG}"
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
@@ -101,8 +68,8 @@ jobs:
       - name: Set image tags in kustomization
         working-directory: ${{ env.KUSTOMIZE_DIR }}
         run: |
-          kustomize edit set image sagerstack/ml-speech-emotion-backend=${BACKEND_IMAGE}:${GITHUB_SHA}
-          kustomize edit set image sagerstack/ml-speech-emotion-streamlit=${STREAMLIT_IMAGE}:${GITHUB_SHA}
+          kustomize edit set image sagerstack/ml-speech-emotion-backend=${BACKEND_IMAGE}:${IMAGE_TAG}
+          kustomize edit set image sagerstack/ml-speech-emotion-streamlit=${STREAMLIT_IMAGE}:${IMAGE_TAG}
 
       - name: Deploy manifests
         run: kubectl apply -k ${{ env.KUSTOMIZE_DIR }}

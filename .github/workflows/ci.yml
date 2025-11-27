@@ -61,3 +61,120 @@ jobs:
 
       - name: Terraform fmt check
         run: terraform fmt -check -recursive
+
+  validate-docker-builds:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate backend Docker build
+        run: |
+          docker build \
+            -f deployment/docker/backend/Dockerfile \
+            -t backend:ci-test \
+            --load \
+            .
+
+      - name: Validate Streamlit Docker build
+        run: |
+          docker build \
+            -f deployment/docker/streamlit/Dockerfile \
+            -t streamlit:ci-test \
+            --load \
+            .
+
+      - name: Test backend container starts
+        run: |
+          docker run --rm -d --name backend-test -p 8000:8000 backend:ci-test
+          sleep 10
+          docker logs backend-test
+          docker stop backend-test
+
+      - name: Test Streamlit container starts
+        run: |
+          docker run --rm -d --name streamlit-test -p 8501:8501 streamlit:ci-test
+          sleep 10
+          docker logs streamlit-test
+          docker stop streamlit-test
+
+  build-and-push:
+    needs: [tests, terraform-format, validate-docker-builds]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: us-east-1
+      BACKEND_REPO_NAME: ml-speech-emotion-backend
+      STREAMLIT_REPO_NAME: ml-speech-emotion-streamlit
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute image URIs and tags
+        id: image-meta
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BACKEND_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${BACKEND_REPO_NAME}"
+          STREAMLIT_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${STREAMLIT_REPO_NAME}"
+
+          echo "BACKEND_IMAGE=${BACKEND_IMAGE}" >> $GITHUB_ENV
+          echo "STREAMLIT_IMAGE=${STREAMLIT_IMAGE}" >> $GITHUB_ENV
+
+          # Determine tags based on event type
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TAG="pr-${{ github.event.pull_request.number }}"
+          else
+            TAG="${GITHUB_SHA:0:7}"
+          fi
+
+          echo "IMAGE_TAG=${TAG}" >> $GITHUB_ENV
+          echo "Building images with tag: ${TAG}"
+
+      - name: Build and push backend image
+        run: |
+          docker build \
+            -f deployment/docker/backend/Dockerfile \
+            -t "${BACKEND_IMAGE}:${IMAGE_TAG}" \
+            .
+          docker push "${BACKEND_IMAGE}:${IMAGE_TAG}"
+
+          # Tag as latest only on main branch
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            docker tag "${BACKEND_IMAGE}:${IMAGE_TAG}" "${BACKEND_IMAGE}:latest"
+            docker push "${BACKEND_IMAGE}:latest"
+          fi
+
+      - name: Build and push Streamlit image
+        run: |
+          docker build \
+            -f deployment/docker/streamlit/Dockerfile \
+            -t "${STREAMLIT_IMAGE}:${IMAGE_TAG}" \
+            .
+          docker push "${STREAMLIT_IMAGE}:${IMAGE_TAG}"
+
+          # Tag as latest only on main branch
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            docker tag "${STREAMLIT_IMAGE}:${IMAGE_TAG}" "${STREAMLIT_IMAGE}:latest"
+            docker push "${STREAMLIT_IMAGE}:latest"
+          fi
+
+      - name: Output image tags
+        run: |
+          echo "Backend image: ${BACKEND_IMAGE}:${IMAGE_TAG}"
+          echo "Streamlit image: ${STREAMLIT_IMAGE}:${IMAGE_TAG}"

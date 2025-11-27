@@ -1,0 +1,39 @@
+{
+  "rules": [
+    {
+      "rulePriority": 1,
+      "description": "Keep last 10 PR images to save storage costs",
+      "selection": {
+        "tagPrefixList": ["pr-"],
+        "countType": "imageCountMoreThan",
+        "countNumber": 10
+      },
+      "action": {
+        "type": "expire"
+      }
+    },
+    {
+      "rulePriority": 2,
+      "description": "Keep last 20 production images for rollback capability",
+      "selection": {
+        "tagStatus": "tagged",
+        "countType": "imageCountMoreThan",
+        "countNumber": 20
+      },
+      "action": {
+        "type": "expire"
+      }
+    },
+    {
+      "rulePriority": 3,
+      "description": "Always keep the latest tag",
+      "selection": {
+        "tagStatus": "tagged",
+        "tagPrefixList": ["latest"]
+      },
+      "action": {
+        "type": "keep"
+      }
+    }
+  ]
+}
