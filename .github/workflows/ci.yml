@@ -88,35 +88,6 @@ jobs:
             --load \
             .
 
-      - name: Free up disk space before saving
-        run: |
-          # Remove build cache and dangling images only (keeps our tagged images)
-          docker builder prune -af
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          df -h
-
-      - name: Save Docker images as artifacts
-        run: |
-          docker save backend:ci-test -o /tmp/backend-image.tar
-          docker save streamlit:ci-test -o /tmp/streamlit-image.tar
-
-      - name: Upload backend image artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-image
-          path: /tmp/backend-image.tar
-          retention-days: 1
-
-      - name: Upload Streamlit image artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: streamlit-image
-          path: /tmp/streamlit-image.tar
-          retention-days: 1
-
   push-to-ecr:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -130,22 +101,11 @@ jobs:
       STREAMLIT_REPO_NAME: ml-speech-emotion-streamlit
 
     steps:
-      - name: Download backend image artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: backend-image
-          path: /tmp
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Download Streamlit image artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: streamlit-image
-          path: /tmp
-
-      - name: Load Docker images
-        run: |
-          docker load -i /tmp/backend-image.tar
-          docker load -i /tmp/streamlit-image.tar
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -171,20 +131,28 @@ jobs:
           echo "IMAGE_TAG=${TAG}" >> $GITHUB_ENV
           echo "Building images with tag: ${TAG}"
 
-      - name: Tag and push backend image to ECR
+      - name: Build and push backend image to ECR
         run: |
-          docker tag backend:ci-test "${BACKEND_IMAGE}:${IMAGE_TAG}"
-          docker push "${BACKEND_IMAGE}:${IMAGE_TAG}"
+          docker build \
+            -f deployment/docker/backend/Dockerfile \
+            -t "${BACKEND_IMAGE}:${IMAGE_TAG}" \
+            -t "${BACKEND_IMAGE}:latest" \
+            --load \
+            .
 
-          docker tag backend:ci-test "${BACKEND_IMAGE}:latest"
+          docker push "${BACKEND_IMAGE}:${IMAGE_TAG}"
           docker push "${BACKEND_IMAGE}:latest"
 
-      - name: Tag and push Streamlit image to ECR
+      - name: Build and push Streamlit image to ECR
         run: |
-          docker tag streamlit:ci-test "${STREAMLIT_IMAGE}:${IMAGE_TAG}"
-          docker push "${STREAMLIT_IMAGE}:${IMAGE_TAG}"
+          docker build \
+            -f deployment/docker/streamlit/Dockerfile \
+            -t "${STREAMLIT_IMAGE}:${IMAGE_TAG}" \
+            -t "${STREAMLIT_IMAGE}:latest" \
+            --load \
+            .
 
-          docker tag streamlit:ci-test "${STREAMLIT_IMAGE}:latest"
+          docker push "${STREAMLIT_IMAGE}:${IMAGE_TAG}"
           docker push "${STREAMLIT_IMAGE}:latest"
 
       - name: Output image tags
