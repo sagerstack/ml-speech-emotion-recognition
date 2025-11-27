@@ -89,17 +89,49 @@ jobs:
 
       - name: Test backend container starts
         run: |
-          docker run --rm -d --name backend-test -p 8000:8000 backend:ci-test
+          # Start container (don't use --rm so we can get logs even if it crashes)
+          docker run -d --name backend-test -p 8000:8000 backend:ci-test
+          CONTAINER_ID=$(docker ps -aq --filter name=backend-test)
+          echo "Container ID: $CONTAINER_ID"
+
+          # Wait for container to start
           sleep 10
-          docker logs backend-test
-          docker stop backend-test
+
+          # Check if container is still running
+          if docker ps --filter name=backend-test | grep backend-test; then
+            echo "✅ Container is running"
+            docker logs backend-test
+            docker stop backend-test
+            docker rm backend-test
+          else
+            echo "❌ Container exited! Checking logs..."
+            docker logs backend-test || echo "No logs available"
+            docker rm backend-test
+            exit 1
+          fi
 
       - name: Test Streamlit container starts
         run: |
-          docker run --rm -d --name streamlit-test -p 8501:8501 streamlit:ci-test
+          # Start container (don't use --rm so we can get logs even if it crashes)
+          docker run -d --name streamlit-test -p 8501:8501 streamlit:ci-test
+          CONTAINER_ID=$(docker ps -aq --filter name=streamlit-test)
+          echo "Container ID: $CONTAINER_ID"
+
+          # Wait for container to start
           sleep 10
-          docker logs streamlit-test
-          docker stop streamlit-test
+
+          # Check if container is still running
+          if docker ps --filter name=streamlit-test | grep streamlit-test; then
+            echo "✅ Container is running"
+            docker logs streamlit-test
+            docker stop streamlit-test
+            docker rm streamlit-test
+          else
+            echo "❌ Container exited! Checking logs..."
+            docker logs streamlit-test || echo "No logs available"
+            docker rm streamlit-test
+            exit 1
+          fi
 
   build-and-push:
     needs: [tests, terraform-format, validate-docker-builds]
