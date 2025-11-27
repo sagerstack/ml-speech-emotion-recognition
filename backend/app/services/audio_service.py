@@ -5,6 +5,7 @@ This service handles audio file validation, preprocessing, and feature extractio
 using librosa for audio analysis and ML model input preparation.
 """
 
+import base64
 import io
 import logging
 from pathlib import Path
@@ -294,6 +295,55 @@ class AudioProcessor:
             raise
         except Exception as e:
             raise AudioProcessingError(f"Audio processing pipeline failed: {str(e)}")
+
+    def audio_to_base64(self, file_data: bytes, filename: str) -> Tuple[str, int]:
+        """
+        Convert audio file data to base64 string for SageMaker endpoint.
+
+        Args:
+            file_data: Raw audio file data
+            filename: Original filename
+
+        Returns:
+            Tuple of (base64_encoded_string, sample_rate)
+
+        Raises:
+            AudioProcessingError: If conversion fails
+        """
+        try:
+            # Validate file first
+            self.validate_audio_file(file_data, filename)
+
+            # Load audio with original sample rate to preserve it
+            with io.BytesIO(file_data) as audio_file:
+                audio_data, sample_rate = librosa.load(audio_file, sr=None, mono=True)
+
+            # Convert to float32 if needed
+            if audio_data.dtype != np.float32:
+                audio_data = audio_data.astype(np.float32)
+
+            # Create WAV buffer
+            buffer = io.BytesIO()
+            sf.write(buffer, audio_data, sample_rate, format='WAV')
+            buffer.seek(0)
+
+            # Encode to base64
+            audio_base64 = base64.b64encode(buffer.read()).decode('utf-8')
+
+            if not audio_base64:
+                raise AudioProcessingError("Failed to convert audio to base64")
+
+            self.logger.info(
+                f"Audio converted to base64 successfully: {filename}, "
+                f"sample_rate={sample_rate}, size={len(audio_base64)} chars"
+            )
+
+            return audio_base64, sample_rate
+
+        except AudioProcessingError:
+            raise
+        except Exception as e:
+            raise AudioProcessingError(f"Failed to convert audio to base64: {str(e)}")
 
     def features_to_dict(self, features: AudioFeatures) -> Dict[str, Any]:
         """

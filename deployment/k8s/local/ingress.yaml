@@ -2,12 +2,13 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ml-emotion-ingress
-  namespace: ml-emotion
+  namespace: ml-speech-emotion
   labels:
     app: ml-speech-emotion-recognition
     environment: local
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/use-regex: "true"
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
     nginx.ingress.kubernetes.io/proxy-body-size: "30m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
@@ -23,7 +24,7 @@ spec:
     http:
       paths:
       - path: /api(/|$)(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: backend
@@ -37,7 +38,7 @@ spec:
             port:
               number: 8000
       - path: /docs(/|$)(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: backend
@@ -60,21 +61,11 @@ spec:
             name: streamlit
             port:
               number: 8501
-  - host: dashboard.ml-emotion.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: frontend
-            port:
-              number: 80
   - host: localhost
     http:
       paths:
       - path: /api(/|$)(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: backend
@@ -88,7 +79,7 @@ spec:
             port:
               number: 8000
       - path: /docs(/|$)(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: backend
@@ -102,16 +93,9 @@ spec:
             port:
               number: 9090
       - path: /streamlit(/|$)(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: streamlit
             port:
               number: 8501
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: frontend
-            port:
-              number: 80

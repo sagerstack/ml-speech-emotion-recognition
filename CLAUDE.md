@@ -1,23 +1,6 @@
 # Behavioral Rules for CLAUDE
 
-## Interaction Rules
-
-### Communication Style
-- Always use ENGLISH as the primary language to communicate with the user
-- Always be concise and direct
-- Use bullet points for clarity
-- Ask clarifying questions before assuming
-
-## Spec-Kit Command Language Policy
-- **CRITICAL**: For ALL /spec-kit commands and interactions, use ENGLISH as the communication language ONLY
-- Never use Korean or any other language for spec-kit plugin interactions
-- This applies to all spec-kit commands: /spec-kit:specify, /spec-kit:plan, /spec-kit:tasks, /spec-kit:implement, /spec-kit:analyze, /spec-kit:clarify
-- All AskUserQuestion calls within spec-kit workflows must be in English
-- All error messages and guidance within spec-kit must be in English
-
-
 ### Thought-Process
-- Use upskill when solving complex problems
 - Use the artifact-generator skill when asked to generate specific artifacts, like user story, implementation plan
 - Spend sufficient tokens to plan a task with the user before jumping to solution. Ask clarifying questions ONE AT A TIME
 
@@ -27,9 +10,8 @@
 - Prefer existing patterns over new approaches
 
 ### Coding Instructions
- - 1. Always write code under a services/`app-name` folder. If `app-name` was not provided, confirm with the user
- - 2. When writing Python code, always use poetry for dependency and package management
- - 3. When writing Python code, always use the python-developer subagent
+ - 1. When writing Python code, always use poetry for dependency and package management
+ - 2. When writing Python code, always use the python-developer subagent
 
 #### Coding Behaviors
  - 1. Always write incremental code and test. Identify a logical stop when sufficient code has been written that should be tested before further development. There is little value in writing a significant amount of code without testing. 
@@ -202,3 +184,11 @@ The project appears to need:
 - 001-model-deployment-api: Added Python 3.11+, TypeScript 5.x + FastAPI, Uvicorn, WebSockets, Librosa, Boto3, SageMaker SDK, Pydantic, Streamlit, Reac
 - use github cli (gh cli) for git commands
 - always use python-developer subagent when writing python code and tests
+- for all streamlit python code changes, use subagent streamlit-developer
+- reference @frontend/streamlit_app/docs/streamlit_antd_components.md for streamlit antdesign components
+- refernece @frontend/streamlit_app/docs/streamlit_shadcn_ui.md for streamlit shadcn ui components
+- for streamlit app code changes, always run the streamlit app before you respond back to me, check the frontend for any runtime errors and fix them
+- for streamlit app, always launch on port 8510
+- always check streamlit official documentation for referencing HOW to implement a capability or feature in streamlit- https://docs.streamlit.io/develop/api-reference
+- after you launch the app, wait for 15 seconds to monitor for any errors in the logs
+- always sleep for 15 seconds after launching app. not 5

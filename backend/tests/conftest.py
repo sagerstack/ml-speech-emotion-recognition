@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import os
+import sys
 import tempfile
 import uuid
 from pathlib import Path
@@ -24,6 +25,11 @@ import pytest_asyncio
 import soundfile as sf
 from fastapi.testclient import TestClient
 from moto import mock_aws
+
+# Ensure the backend package is importable when running tests from repo root
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.main import app
 from app.services.audio_service import AudioProcessor, AudioFeatures, AudioMetadata
@@ -51,6 +57,7 @@ def test_environment() -> None:
     os.environ["AWS_REGION"] = "us-east-1"
     os.environ["SAGEMAKER_ENDPOINT_NAME"] = "test-endpoint"
     os.environ["SECRET_KEY"] = "test-secret-key-for-jwt"
+    os.environ["S3_BUCKET_NAME"] = "your-s3-bucket-name"  # Default for tests
 
     # Disable actual AWS services during testing
     os.environ["AWS_ACCESS_KEY_ID"] = "testing"
