@@ -88,6 +88,16 @@ jobs:
             --load \
             .
 
+      - name: Free up disk space before saving
+        run: |
+          # Remove build cache and dangling images only (keeps our tagged images)
+          docker builder prune -af
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
       - name: Save Docker images as artifacts
         run: |
           docker save backend:ci-test -o /tmp/backend-image.tar
