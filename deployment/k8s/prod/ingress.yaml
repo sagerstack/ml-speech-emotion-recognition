@@ -18,10 +18,7 @@ metadata:
     alb.ingress.kubernetes.io/unhealthy-threshold-count: '3'
     alb.ingress.kubernetes.io/success-codes: '200,302'
     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=300
-    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-2016-08
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789012:certificate/12345678-1234-1234-1234-123456789012
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-    alb.ingress.kubernetes.io/redirect-http-to-https: 'true'
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
     alb.ingress.kubernetes.io/enable-cors: 'true'
     alb.ingress.kubernetes.io/cors-allow-origin: '["https://ml-emotion.example.com", "https://dashboard.ml-emotion.example.com", "https://app.ml-emotion.example.com"]'
     alb.ingress.kubernetes.io/cors-allow-methods: '["GET", "POST", "PUT", "DELETE", "OPTIONS"]'
@@ -32,10 +29,9 @@ metadata:
     external-dns.alpha.kubernetes.io/hostname: "api.ml-emotion.example.com,app.ml-emotion.example.com"
 spec:
   rules:
-  - host: api.ml-emotion.example.com
-    http:
+  - http:
       paths:
-      - path: /api(/|$)(.*)
+      - path: /api
         pathType: Prefix
         backend:
           service:
@@ -49,7 +45,7 @@ spec:
             name: backend
             port:
               number: 8000
-      - path: /docs(/|$)(.*)
+      - path: /docs
         pathType: Prefix
         backend:
           service:
@@ -63,16 +59,6 @@ spec:
             name: backend
             port:
               number: 9090
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: backend
-            port:
-              number: 8000
-  - host: app.ml-emotion.example.com
-    http:
-      paths:
       - path: /
         pathType: Prefix
         backend:
