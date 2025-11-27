@@ -135,6 +135,7 @@ resource "aws_ecr_lifecycle_policy" "backend" {
         rulePriority = 1
         description  = "Keep last 10 PR images to save storage costs"
         selection = {
+          tagStatus     = "tagged"
           tagPrefixList = ["pr-"]
           countType     = "imageCountMoreThan"
           countNumber   = 10
@@ -145,25 +146,15 @@ resource "aws_ecr_lifecycle_policy" "backend" {
       },
       {
         rulePriority = 2
-        description  = "Keep last 20 production images for rollback capability"
+        description  = "Remove untagged images after 1 day"
         selection = {
-          tagStatus   = "tagged"
-          countType   = "imageCountMoreThan"
-          countNumber = 20
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countNumber = 1
+          countUnit   = "days"
         }
         action = {
           type = "expire"
-        }
-      },
-      {
-        rulePriority = 3
-        description  = "Always keep the latest tag"
-        selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["latest"]
-        }
-        action = {
-          type = "keep"
         }
       }
     ]
@@ -179,6 +170,7 @@ resource "aws_ecr_lifecycle_policy" "streamlit" {
         rulePriority = 1
         description  = "Keep last 10 PR images to save storage costs"
         selection = {
+          tagStatus     = "tagged"
           tagPrefixList = ["pr-"]
           countType     = "imageCountMoreThan"
           countNumber   = 10
@@ -189,25 +181,15 @@ resource "aws_ecr_lifecycle_policy" "streamlit" {
       },
       {
         rulePriority = 2
-        description  = "Keep last 20 production images for rollback capability"
+        description  = "Remove untagged images after 1 day"
         selection = {
-          tagStatus   = "tagged"
-          countType   = "imageCountMoreThan"
-          countNumber = 20
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countNumber = 1
+          countUnit   = "days"
         }
         action = {
           type = "expire"
-        }
-      },
-      {
-        rulePriority = 3
-        description  = "Always keep the latest tag"
-        selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["latest"]
-        }
-        action = {
-          type = "keep"
         }
       }
     ]
