@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ml-emotion
+  name: ml-speech-emotion
   labels:
     app: ml-speech-emotion-recognition
     environment: local

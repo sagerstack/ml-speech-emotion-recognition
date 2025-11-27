@@ -1,0 +1,90 @@
+name: Deploy to EKS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  K8S_NAMESPACE: ml-speech-emotion
+  EKS_CLUSTER_NAME: ml-speech-emotion-prod-eks
+  KUSTOMIZE_DIR: deployment/k8s/prod
+  BACKEND_REPO_NAME: ml-speech-emotion-backend
+  STREAMLIT_REPO_NAME: ml-speech-emotion-streamlit
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    environment:
+      name: production
+    # This workflow deploys pre-built Docker images from ECR
+    # Images are built and pushed by the CI workflow after all gates pass
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Compute image URIs and tags
+        id: image-uris
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BACKEND_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${BACKEND_REPO_NAME}"
+          STREAMLIT_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${STREAMLIT_REPO_NAME}"
+
+          # Use same short SHA format as CI (first 7 chars)
+          IMAGE_TAG="${GITHUB_SHA:0:7}"
+
+          echo "BACKEND_IMAGE=${BACKEND_IMAGE}" >> $GITHUB_ENV
+          echo "STREAMLIT_IMAGE=${STREAMLIT_IMAGE}" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+
+          echo "Deploying images with tag: ${IMAGE_TAG}"
+          echo "Backend: ${BACKEND_IMAGE}:${IMAGE_TAG}"
+          echo "Streamlit: ${STREAMLIT_IMAGE}:${IMAGE_TAG}"
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "latest"
+
+      - name: Install kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          version: "5.4.2"
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name "${{ env.EKS_CLUSTER_NAME }}" --region "${{ env.AWS_REGION }}"
+
+      - name: Set image tags in kustomization
+        working-directory: ${{ env.KUSTOMIZE_DIR }}
+        run: |
+          kustomize edit set image sagerstack/ml-speech-emotion-backend=${BACKEND_IMAGE}:${IMAGE_TAG}
+          kustomize edit set image sagerstack/ml-speech-emotion-streamlit=${STREAMLIT_IMAGE}:${IMAGE_TAG}
+
+      - name: Deploy manifests
+        run: kubectl apply -k ${{ env.KUSTOMIZE_DIR }}
+
+      - name: Verify backend rollout
+        run: kubectl rollout status deployment/backend -n ${{ env.K8S_NAMESPACE }} --timeout=180s
+
+      - name: Verify Streamlit rollout
+        run: kubectl rollout status deployment/streamlit -n ${{ env.K8S_NAMESPACE }} --timeout=180s
+
+      - name: Post-deploy smoke tests
+        run: |
+          BACKEND_URL=$(kubectl get svc backend -n ${{ env.K8S_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          if [ -n "$BACKEND_URL" ]; then
+            curl -fsSL "http://${BACKEND_URL}/health"
+          else
+            echo "Backend service has no external hostname yet; skipping health curl."
+          fi

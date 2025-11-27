@@ -1,0 +1,6 @@
+from pathlib import Path
+import pickle
+MODEL_PATH = Path("../notebooks/models/model_v1.pkl")
+with MODEL_PATH.open("rb") as f:
+    model = pickle.load(f)
+print(model)

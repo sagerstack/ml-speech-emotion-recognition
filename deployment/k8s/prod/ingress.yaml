@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ml-emotion-ingress
-  namespace: ml-emotion-prod
+  namespace: ml-speech-emotion
   labels:
     app: ml-speech-emotion-recognition
     environment: production
@@ -29,10 +29,10 @@ metadata:
     alb.ingress.kubernetes.io/cors-max-age: '86400'
     alb.ingress.kubernetes.io/rate-limit-requests-per-second: '100'
     alb.ingress.kubernetes.io/rate-limit-burst: '200'
-    external-dns.alpha.kubernetes.io/hostname: "ml-emotion.example.com,app.ml-emotion.example.com,dashboard.ml-emotion.example.com"
+    external-dns.alpha.kubernetes.io/hostname: "api.ml-emotion.example.com,app.ml-emotion.example.com"
 spec:
   rules:
-  - host: ml-emotion.example.com
+  - host: api.ml-emotion.example.com
     http:
       paths:
       - path: /api(/|$)(.*)
@@ -67,16 +67,6 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: frontend
-            port:
-              number: 80
-  - host: api.ml-emotion.example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
             name: backend
             port:
               number: 8000
@@ -90,13 +80,3 @@ spec:
             name: streamlit
             port:
               number: 8501
-  - host: dashboard.ml-emotion.example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: frontend
-            port:
-              number: 80

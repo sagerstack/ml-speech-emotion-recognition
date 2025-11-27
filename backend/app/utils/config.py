@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     """Application settings with environment variable support"""
 
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore", env_ignore_empty=True
+        env_file=".env.local", env_file_encoding="utf-8", case_sensitive=False, extra="ignore", env_ignore_empty=True
     )
 
     # Application Configuration
@@ -28,10 +28,10 @@ class Settings(BaseSettings):
 
     # AWS Configuration (us-east-1 as per user decision)
     aws_region: str = "us-east-1"
-    sagemaker_endpoint_name: str = "test-emotion-endpoint"
+    sagemaker_endpoint_name: str = "speech-emotion-1763484306"
 
     # Security Configuration
-    secret_key: str = "test-dev-secret-key-for-local-testing-only"
+    secret_key: str = ""
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
@@ -87,6 +87,13 @@ class Settings(BaseSettings):
     def validate_concurrent_requests(cls, v):
         if v <= 0:
             raise ValueError('Max concurrent requests must be positive')
+        return v
+
+    @field_validator('secret_key')
+    @classmethod
+    def validate_secret_key(cls, v):
+        if not v or v.strip() == "":
+            raise ValueError('SECRET_KEY environment variable must be set and non-empty')
         return v
 
     @field_validator('access_token_expire_minutes')

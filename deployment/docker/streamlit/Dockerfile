@@ -27,8 +27,8 @@ WORKDIR /app
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash streamlit
 
-# Copy project files
-COPY frontend/streamlit_app/pyproject.toml frontend/streamlit_app/poetry.lock ./
+# Copy root Poetry configuration (shared dependencies)
+COPY pyproject.toml poetry.lock ./
 
 # Copy environment files (if they exist)
 COPY frontend/.env.example ./.env.example
@@ -60,4 +60,4 @@ ENV STREAMLIT_SERVER_PORT=8501 \
     STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 
 # Run the Streamlit application
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+CMD ["streamlit", "run", "src/ml-app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
