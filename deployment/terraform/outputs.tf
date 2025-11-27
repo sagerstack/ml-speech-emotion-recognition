@@ -37,3 +37,8 @@ output "kubeconfig_update_command" {
   description = "Helper command for updating local kubeconfig."
   value       = "aws eks update-kubeconfig --name ${module.eks.cluster_name} --region ${var.aws_region}"
 }
+
+output "vpc_id" {
+  description = "VPC ID for cleanup script."
+  value       = module.vpc.vpc_id
+}
