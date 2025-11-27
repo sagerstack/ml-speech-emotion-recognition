@@ -136,6 +136,7 @@ resource "aws_iam_openid_connect_provider" "github" {
 resource "aws_ecr_repository" "backend" {
   name                 = "${local.project_name}-backend"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
@@ -147,6 +148,7 @@ resource "aws_ecr_repository" "backend" {
 resource "aws_ecr_repository" "streamlit" {
   name                 = "${local.project_name}-streamlit"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
