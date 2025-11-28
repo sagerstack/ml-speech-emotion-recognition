@@ -36,9 +36,57 @@ Outputs include:
 - `github_actions_role_arn` for CI/CD configuration
 
 ## Cleanup
-To delete all provisioned resources when finished:
+
+**IMPORTANT**: Do not run `terraform destroy` directly. Use the provided cleanup script instead.
+
+### Why Use the Cleanup Script?
+
+The AWS Load Balancer Controller creates AWS resources (Load Balancers, Security Groups, Target Groups) dynamically when you deploy Kubernetes services. These resources are created **outside of Terraform** and must be cleaned up **before** destroying the infrastructure, otherwise they'll be orphaned and block Terraform destroy.
+
+### Proper Cleanup Process
+
+Use the automated cleanup script:
 ```bash
-terraform destroy
+cd deployment/terraform
+./destroy.sh
+```
+
+**Important**: The script uses `AWS_PROFILE=ml-ser-deploy` by default. It will display the configuration before proceeding.
+
+The script will:
+1. ✅ Display AWS profile, region, and cluster configuration
+2. ✅ Delete Kubernetes namespace and all services (triggers AWS Load Balancer Controller cleanup)
+3. ✅ Wait for AWS resources to be removed (60 seconds)
+4. ✅ Check for and delete any orphaned load balancers/security groups
+5. ✅ Run `terraform destroy` with the correct AWS profile and confirmation prompt
+
+### Environment Variables
+
+The script uses these defaults (can be overridden by setting environment variables):
+- `AWS_PROFILE=ml-ser-deploy` (⚠️ **REQUIRED** - must have permissions for EKS, EC2, VPC, and ELB)
+- `AWS_REGION=us-east-1`
+- `EKS_CLUSTER_NAME=ml-speech-emotion-prod-eks`
+- `K8S_NAMESPACE=ml-speech-emotion`
+
+Example with custom values:
+```bash
+# Override with different profile and region
+AWS_PROFILE=my-profile AWS_REGION=us-west-2 ./destroy.sh
+
+# Or explicitly set the default profile (for clarity)
+AWS_PROFILE=ml-ser-deploy ./destroy.sh
+```
+
+### Manual Cleanup (Not Recommended)
+
+If you must clean up manually:
+```bash
+# 1. Delete Kubernetes resources first
+kubectl delete namespace ml-speech-emotion
+sleep 60
+
+# 2. Then run terraform destroy
+AWS_PROFILE=ml-ser-deploy terraform destroy
 ```
 
 ## Notes
