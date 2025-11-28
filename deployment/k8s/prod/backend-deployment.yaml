@@ -217,7 +217,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: backend-hpa
-  namespace: ml-emotion-prod
+  namespace: ml-speech-emotion
   labels:
     app: ml-speech-emotion-recognition
     service: backend
