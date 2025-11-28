@@ -26,10 +26,6 @@ RUN useradd --create-home --shell /bin/bash streamlit
 # Copy only Streamlit-specific requirements file
 COPY frontend/streamlit_app/requirements.txt ./requirements.txt
 
-# Copy environment files (if they exist)
-COPY frontend/.env.example ./.env.example 2>/dev/null || true
-COPY frontend/.env.local ./.env.local 2>/dev/null || true
-
 # Install Python dependencies directly with pip (no Poetry overhead)
 # Using Streamlit-specific requirements instead of root pyproject.toml
 # This excludes heavyweight ML packages: tensorflow, keras, transformers, sagemaker, etc.
