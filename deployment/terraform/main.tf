@@ -59,87 +59,8 @@ module "vpc" {
   tags = local.tags
 }
 
-# VPC Endpoints for ECR - Required for private subnets to pull images
-# Without these, nodes may fail to authenticate to ECR
-resource "aws_security_group" "vpc_endpoints" {
-  name        = "${local.project_name}-vpc-endpoints"
-  description = "Security group for VPC endpoints"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
-    description = "Allow HTTPS from VPC"
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "Allow all outbound"
-  }
-
-  tags = merge(local.tags, {
-    Name = "${local.project_name}-vpc-endpoints-sg"
-  })
-}
-
-# ECR API endpoint
-resource "aws_vpc_endpoint" "ecr_api" {
-  vpc_id              = module.vpc.vpc_id
-  service_name        = "com.amazonaws.${var.aws_region}.ecr.api"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = module.vpc.private_subnets
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
-  private_dns_enabled = true
-
-  tags = merge(local.tags, {
-    Name = "${local.project_name}-ecr-api-endpoint"
-  })
-}
-
-# ECR Docker endpoint
-resource "aws_vpc_endpoint" "ecr_dkr" {
-  vpc_id              = module.vpc.vpc_id
-  service_name        = "com.amazonaws.${var.aws_region}.ecr.dkr"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = module.vpc.private_subnets
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
-  private_dns_enabled = true
-
-  tags = merge(local.tags, {
-    Name = "${local.project_name}-ecr-dkr-endpoint"
-  })
-}
-
-# S3 Gateway endpoint for ECR (image layers stored in S3)
-resource "aws_vpc_endpoint" "s3" {
-  vpc_id            = module.vpc.vpc_id
-  service_name      = "com.amazonaws.${var.aws_region}.s3"
-  vpc_endpoint_type = "Gateway"
-  route_table_ids   = module.vpc.private_route_table_ids
-
-  tags = merge(local.tags, {
-    Name = "${local.project_name}-s3-endpoint"
-  })
-}
-
-# STS endpoint for IRSA (IAM Roles for Service Accounts)
-resource "aws_vpc_endpoint" "sts" {
-  vpc_id              = module.vpc.vpc_id
-  service_name        = "com.amazonaws.${var.aws_region}.sts"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = module.vpc.private_subnets
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
-  private_dns_enabled = true
-
-  tags = merge(local.tags, {
-    Name = "${local.project_name}-sts-endpoint"
-  })
-}
+# VPC Endpoints removed - nodes now in public subnets with internet gateway access
+# No need for VPC endpoints when nodes can reach ECR/S3/STS via internet
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
@@ -152,18 +73,10 @@ module "eks" {
   cluster_endpoint_private_access = true
 
   vpc_id                   = module.vpc.vpc_id
-  subnet_ids               = module.vpc.private_subnets
+  subnet_ids               = module.vpc.public_subnets
   control_plane_subnet_ids = module.vpc.private_subnets
 
   enable_irsa = true
-
-  # Ensure VPC endpoints are created before EKS cluster
-  depends_on = [
-    aws_vpc_endpoint.ecr_api,
-    aws_vpc_endpoint.ecr_dkr,
-    aws_vpc_endpoint.s3,
-    aws_vpc_endpoint.sts
-  ]
 
   eks_managed_node_groups = {
     default = {
