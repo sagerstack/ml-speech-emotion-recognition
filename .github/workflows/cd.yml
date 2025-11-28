@@ -63,6 +63,11 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name "${{ env.EKS_CLUSTER_NAME }}" --region "${{ env.AWS_REGION }}"
 
+      - name: Ensure namespace exists
+        run: |
+          kubectl create namespace ${{ env.K8S_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+          echo "✓ Namespace ${{ env.K8S_NAMESPACE }} is ready"
+
       - name: Cleanup unused container images
         run: |
           echo "Cleaning up unused container images on all nodes..."
