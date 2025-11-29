@@ -153,14 +153,6 @@ echo ""
 
 cd "$(dirname "$0")"
 
-# Confirmation prompt
-read -p "$(echo -e "${RED}⚠️  This will destroy all infrastructure. Are you sure? (yes/no): ${NC}")" confirmation
-
-if [ "$confirmation" != "yes" ]; then
-    echo -e "${RED}✗${NC} Terraform destroy cancelled by user"
-    exit 1
-fi
-
 echo -e "${YELLOW}   Running terraform destroy with profile: ${AWS_PROFILE}${NC}"
 terraform destroy -auto-approve
 
