@@ -50,6 +50,12 @@ spec:
             configMapKeyRef:
               name: app-config
               key: LOG_LEVEL
+        - name: STREAMLIT_SERVER_ENABLE_CORS
+          value: "true"
+        - name: STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION
+          value: "false"
+        - name: STREAMLIT_SERVER_ENABLE_WEBSOCKET_COMPRESSION
+          value: "true"
         resources:
           requests:
             memory: "512Mi"
