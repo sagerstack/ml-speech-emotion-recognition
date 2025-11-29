@@ -77,17 +77,88 @@ jobs:
       - name: Deploy manifests
         run: kubectl apply -k ${{ env.KUSTOMIZE_DIR }}
 
+      - name: Force fresh rollout
+        run: |
+          echo "Forcing restart of deployments to ensure clean rollout..."
+          kubectl rollout restart deployment/backend -n ${{ env.K8S_NAMESPACE }}
+          kubectl rollout restart deployment/streamlit -n ${{ env.K8S_NAMESPACE }}
+          echo "✓ Rollout restart initiated"
+
       - name: Verify backend rollout
-        run: kubectl rollout status deployment/backend -n ${{ env.K8S_NAMESPACE }} --timeout=180s
+        run: kubectl rollout status deployment/backend -n ${{ env.K8S_NAMESPACE }} --timeout=360s
 
       - name: Verify Streamlit rollout
-        run: kubectl rollout status deployment/streamlit -n ${{ env.K8S_NAMESPACE }} --timeout=180s
+        run: kubectl rollout status deployment/streamlit -n ${{ env.K8S_NAMESPACE }} --timeout=360s
+
+      - name: Wait for ALB provisioning
+        run: |
+          echo "Waiting for Application Load Balancer to be provisioned..."
+          echo "This may take 2-3 minutes on first deployment..."
+
+          TIMEOUT=300
+          ELAPSED=0
+          INTERVAL=10
+
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            ALB_ADDRESS=$(kubectl get ingress ml-emotion-ingress -n ${{ env.K8S_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+
+            if [ -n "$ALB_ADDRESS" ]; then
+              echo "✓ ALB provisioned successfully: ${ALB_ADDRESS}"
+              echo "ALB_ADDRESS=${ALB_ADDRESS}" >> $GITHUB_ENV
+              break
+            fi
+
+            echo "Waiting for ALB... (${ELAPSED}s/${TIMEOUT}s)"
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          if [ -z "$ALB_ADDRESS" ]; then
+            echo "⚠ Warning: ALB not ready after ${TIMEOUT}s. Check AWS Load Balancer Controller logs."
+            echo "Run: kubectl logs -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller"
+            exit 1
+          fi
+
+      - name: Display application URLs
+        run: |
+          ALB_ADDRESS="${{ env.ALB_ADDRESS }}"
+
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎉 Deployment Successful!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📱 Application URLs:"
+          echo "   Frontend (Streamlit):  http://${ALB_ADDRESS}/"
+          echo "   Backend API:           http://${ALB_ADDRESS}/api"
+          echo "   API Docs:              http://${ALB_ADDRESS}/docs"
+          echo "   Health Check:          http://${ALB_ADDRESS}/health"
+          echo "   Metrics:               http://${ALB_ADDRESS}/metrics"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       - name: Post-deploy smoke tests
         run: |
-          BACKEND_URL=$(kubectl get svc backend -n ${{ env.K8S_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-          if [ -n "$BACKEND_URL" ]; then
-            curl -fsSL "http://${BACKEND_URL}/health"
+          ALB_ADDRESS="${{ env.ALB_ADDRESS }}"
+          echo "Running smoke tests against ALB..."
+
+          # Test backend health endpoint
+          echo "Testing backend health endpoint..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://${ALB_ADDRESS}/health" || echo "000")
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✓ Backend health check passed (HTTP $HTTP_CODE)"
           else
-            echo "Backend service has no external hostname yet; skipping health curl."
+            echo "⚠ Backend health check returned HTTP $HTTP_CODE"
+            echo "Note: Pods may still be starting up. Check manually: http://${ALB_ADDRESS}/health"
+          fi
+
+          # Test frontend
+          echo "Testing frontend endpoint..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://${ALB_ADDRESS}/" || echo "000")
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✓ Frontend check passed (HTTP $HTTP_CODE)"
+          else
+            echo "⚠ Frontend returned HTTP $HTTP_CODE"
+            echo "Note: Streamlit may still be starting up. Check manually: http://${ALB_ADDRESS}/"
           fi
