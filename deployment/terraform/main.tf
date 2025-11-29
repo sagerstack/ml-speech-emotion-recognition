@@ -10,10 +10,6 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.27"
     }
-    helm = {
-      source  = "hashicorp/helm"
-      version = "~> 2.12"
-    }
   }
 }
 
@@ -340,14 +336,6 @@ provider "kubernetes" {
   token                  = data.aws_eks_cluster_auth.this.token
 }
 
-provider "helm" {
-  kubernetes {
-    host                   = data.aws_eks_cluster.this.endpoint
-    cluster_ca_certificate = base64decode(data.aws_eks_cluster.this.certificate_authority[0].data)
-    token                  = data.aws_eks_cluster_auth.this.token
-  }
-}
-
 # AWS Load Balancer Controller IAM Policy
 data "aws_iam_policy_document" "aws_load_balancer_controller" {
   statement {
@@ -383,6 +371,7 @@ data "aws_iam_policy_document" "aws_load_balancer_controller" {
       "elasticloadbalancing:DescribeLoadBalancers",
       "elasticloadbalancing:DescribeLoadBalancerAttributes",
       "elasticloadbalancing:DescribeListeners",
+      "elasticloadbalancing:DescribeListenerAttributes",
       "elasticloadbalancing:DescribeListenerCertificates",
       "elasticloadbalancing:DescribeSSLPolicies",
       "elasticloadbalancing:DescribeRules",
@@ -652,46 +641,24 @@ resource "aws_iam_role_policy_attachment" "aws_load_balancer_controller" {
   role       = aws_iam_role.aws_load_balancer_controller.name
 }
 
-# AWS Load Balancer Controller Helm Chart
-resource "helm_release" "aws_load_balancer_controller" {
-  name       = "aws-load-balancer-controller"
-  repository = "https://aws.github.io/eks-charts"
-  chart      = "aws-load-balancer-controller"
-  version    = "1.7.1"
-  namespace  = "kube-system"
-
-  set {
-    name  = "clusterName"
-    value = module.eks.cluster_name
-  }
-
-  set {
-    name  = "serviceAccount.create"
-    value = "true"
-  }
-
-  set {
-    name  = "serviceAccount.name"
-    value = "aws-load-balancer-controller"
-  }
-
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = aws_iam_role.aws_load_balancer_controller.arn
-  }
-
-  set {
-    name  = "region"
-    value = var.aws_region
-  }
-
-  set {
-    name  = "vpcId"
-    value = module.vpc.vpc_id
-  }
-
-  depends_on = [
-    module.eks,
-    aws_iam_role_policy_attachment.aws_load_balancer_controller
-  ]
-}
+# AWS Load Balancer Controller Helm Chart - REMOVED FROM TERRAFORM
+# Install manually after cluster creation:
+#
+# 1. Update kubeconfig:
+#    aws eks update-kubeconfig --name ml-speech-emotion-prod-eks --region us-east-1 --profile ml-ser-deploy
+#
+# 2. Add helm repo:
+#    helm repo add eks https://aws.github.io/eks-charts
+#    helm repo update
+#
+# 3. Install AWS Load Balancer Controller:
+#    helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+#      -n kube-system \
+#      --set clusterName=ml-speech-emotion-prod-eks \
+#      --set serviceAccount.create=true \
+#      --set serviceAccount.name=aws-load-balancer-controller \
+#      --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=arn:aws:iam::303440520181:role/ml-speech-emotion-prod-alb-controller \
+#      --set region=us-east-1 \
+#      --set vpcId=<VPC_ID>
+#
+# Note: Replace <VPC_ID> with the actual VPC ID from terraform output
