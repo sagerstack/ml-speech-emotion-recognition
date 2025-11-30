@@ -62,11 +62,16 @@ class RealSpeechEmotionLab:
             try:
                 logger.info(f"Analyzing audio: {filename} with engine: {engine}")
 
-                # Get real analysis from backend
-                real_result = analyze_emotion(audio_file, filename, engine)
-
-                # Convert to AnalysisResult format
-                analysis_result = self._convert_to_analysis_result(real_result, source, engine)
+                # Use the new local endpoint for local engine
+                if engine == "local":
+                    from api_client import get_api_client
+                    api_client = get_api_client()
+                    analysis_result = api_client.analyze_audio_local(audio_file, filename)
+                else:
+                    # Use the old endpoint for sagemaker/dual_stack
+                    real_result = analyze_emotion(audio_file, filename, engine)
+                    # Convert to AnalysisResult format
+                    analysis_result = self._convert_to_analysis_result(real_result, source, engine)
 
                 logger.info(f"Analysis completed: {analysis_result.emotion} ({analysis_result.confidence:.2%})")
                 return analysis_result

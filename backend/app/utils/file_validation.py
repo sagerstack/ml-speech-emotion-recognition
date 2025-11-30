@@ -127,10 +127,8 @@ def validate_audio_file(
 
     if detected_type not in expected_detected_types:
         logger.warning(
-            "File type mismatch detected",
-            declared_type=declared_content_type,
-            detected_type=detected_type,
-            file_signature=file_data[:16].hex() if file_data else None
+            f"File type mismatch detected: declared={declared_content_type}, "
+            f"detected={detected_type}, signature={file_data[:16].hex() if file_data else None}"
         )
         return False, (
             f"File type mismatch. Declared as {declared_content_type} "
