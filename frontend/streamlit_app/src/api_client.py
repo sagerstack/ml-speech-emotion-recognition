@@ -231,6 +231,118 @@ class SpeechEmotionAPIClient:
             logger.error(f"Failed to parse successful response: {str(e)}")
             raise ValueError(f"Invalid response format: {str(e)}")
 
+    def analyze_audio_local(
+        self,
+        audio_file: BinaryIO,
+        filename: str
+    ) -> EmotionAnalysisResult:
+        """
+        Analyze audio file using local model endpoint (/v1/infer/local/latest).
+
+        This method uses the new local inference endpoint that returns
+        predictions with model info and processing time.
+
+        Args:
+            audio_file: Audio file binary data
+            filename: Name of the audio file
+
+        Returns:
+            EmotionAnalysisResult: Complete analysis result
+
+        Raises:
+            RequestException: If the API request fails
+            ValueError: If the response is invalid
+        """
+        start_time = time.time()
+
+        try:
+            # Prepare the file for upload with explicit content type
+            files = {'file': (filename, audio_file, 'audio/wav')}
+
+            logger.info(f"Analyzing audio file locally: {filename}")
+
+            # Make the request to the local inference endpoint
+            response = self.session.post(
+                f"{self.base_url}/v1/infer/local/latest",
+                files=files,
+                timeout=self.timeout
+            )
+
+            # Calculate total processing time
+            total_processing_time = time.time() - start_time
+
+            # Handle different response scenarios
+            if response.status_code == 200:
+                return self._parse_local_response(response, filename, total_processing_time)
+            else:
+                return self._handle_error_response(response)
+
+        except Timeout as e:
+            logger.error(f"Request timeout after {self.timeout}s: {str(e)}")
+            raise RequestException(f"Request timeout: The analysis took too long to complete.")
+
+        except ConnectionError as e:
+            logger.error(f"Connection error: {str(e)}")
+            raise RequestException(f"Connection error: Unable to connect to the backend service.")
+
+        except RequestException as e:
+            logger.error(f"Request failed: {str(e)}")
+            raise
+
+        except Exception as e:
+            logger.error(f"Unexpected error during audio analysis: {str(e)}")
+            raise RequestException(f"Unexpected error: {str(e)}")
+
+    def _parse_local_response(
+        self,
+        response: requests.Response,
+        filename: str,
+        total_processing_time: float
+    ) -> EmotionAnalysisResult:
+        """
+        Parse response from /v1/infer/local/latest endpoint.
+
+        Expected response format:
+        {
+            "version": "2",
+            "prediction": {
+                "emotion": "happy",
+                "confidence": 0.92,
+                "all_probabilities": {"happy": 0.92, "neutral": 0.05, ...}
+            },
+            "model_info": {
+                "type": "SVM Pipeline",
+                "features_used": 78
+            },
+            "processing_time_ms": 234
+        }
+        """
+        try:
+            data = response.json()
+
+            # Extract prediction data
+            prediction = data.get('prediction', {})
+            emotion = prediction.get('emotion')
+            confidence = prediction.get('confidence', 0.0)
+            all_probabilities = prediction.get('all_probabilities', {})
+
+            # Create and return the result
+            return EmotionAnalysisResult(
+                source=filename,
+                engine="local",
+                emotion=emotion,
+                confidence=confidence,
+                probabilities=all_probabilities,
+                processing_time=total_processing_time,
+                audio_metadata=None,
+                inference_metadata=None,
+                request_id=None
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to parse local response: {str(e)}")
+            raise ValueError(f"Invalid response format: {str(e)}")
+
     def _handle_error_response(self, response: requests.Response) -> None:
         """Handle error responses from the API"""
         try:

@@ -1,6 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 import io
+import logging
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -14,6 +15,9 @@ from feature_charts import heatmap_chart, probability_bar, waveform_chart
 from mock_inference import AnalysisResult
 from real_inference import real_lab_backend, mock_lab_backend, get_backend_health
 from api_client import ML_APP_BASE_URL
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="Codex Iteration 5 · Speech Emotion Lab",
@@ -305,64 +309,290 @@ def stage_feature_analysis(feature_summary: dict | None):
                     st.expander("Error Details").write(str(e))
 
 
+def get_emotion_icon(emotion: str) -> str:
+    """
+    Get Material Symbols Rounded icon name for a given emotion.
+
+    Args:
+        emotion: Emotion name (e.g., 'happy', 'sad', 'angry')
+
+    Returns:
+        str: Material icon name
+    """
+    emotion_icons = {
+        "angry": "sentiment_very_dissatisfied",
+        "disgust": "sick",
+        "fear": "sentiment_stressed",
+        "fearful": "sentiment_stressed",
+        "happy": "sentiment_very_satisfied",
+        "neutral": "sentiment_neutral",
+        "sad": "sentiment_dissatisfied",
+        "surprised": "sentiment_excited",
+        "calm": "sentiment_calm",
+    }
+    return emotion_icons.get(emotion.lower(), "sentiment_neutral")
+
+
+def get_performance_color(time_ms: float) -> tuple[str, str]:
+    """
+    Get color and label for performance metrics based on processing time.
+
+    Args:
+        time_ms: Processing time in milliseconds
+
+    Returns:
+        tuple: (color_hex, performance_label)
+    """
+    if time_ms < 100:
+        return "#10b981", "Fast"  # green
+    elif time_ms < 500:
+        return "#f59e0b", "Medium"  # yellow
+    else:
+        return "#ef4444", "Slow"  # red
+
+
+def get_mock_inference_result() -> dict:
+    """
+    Generate mock inference result matching real API structure.
+
+    Returns:
+        dict: Mock inference response
+    """
+    return {
+        "version": "2",
+        "prediction": {
+            "emotion": "happy",
+            "confidence": 0.95,
+            "all_probabilities": {
+                "angry": 0.01,
+                "disgust": 0.01,
+                "fear": 0.01,
+                "happy": 0.95,
+                "neutral": 0.01,
+                "sad": 0.01
+            }
+        },
+        "model_info": {
+            "type": "Pipeline (StandardScaler + RFE + SVC)",
+            "features_used": 78
+        },
+        "processing_time_ms": 45.32
+    }
+
+
+def get_mock_model_metadata() -> dict:
+    """
+    Generate mock model metadata matching real API structure.
+
+    Returns:
+        dict: Mock metadata response
+    """
+    return {
+        "version": "2",
+        "model_name": "SVM with MFCC Features",
+        "model_type": "Pipeline (StandardScaler + RFE + SVC)",
+        "description": "Support Vector Machine with MFCC-based features and Recursive Feature Elimination",
+        "feature_dimension": 78,
+        "feature_extraction": "MFCCs with delta and delta-delta coefficients",
+        "classes": ["angry", "disgust", "fear", "happy", "neutral", "sad"],
+        "num_classes": 6,
+        "created_date": "2024-01-20",
+        "dataset": "CREMA-D",
+        "notes": "Improved model with feature selection and SVM classifier"
+    }
+
+
+def fetch_latest_model_metadata() -> dict | None:
+    """
+    Fetch model metadata from the backend API.
+
+    Returns:
+        dict: Model metadata or None on error
+    """
+    try:
+        import requests
+        response = requests.get(
+            f"{ML_APP_BASE_URL}/v1/models/local/latest",
+            timeout=5
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.warning(f"Failed to fetch metadata: HTTP {response.status_code}")
+            return None
+    except Exception as e:
+        logger.warning(f"Error fetching metadata: {str(e)}")
+        return None
+
+
 def stage_inference_results(result: AnalysisResult | None):
+    """
+    Display redesigned inference results with Material Icons and Ant Design cards.
+
+    This function implements US-006 requirements:
+    - Material Symbols Rounded icons for emotions
+    - Ant Design cards for organized display
+    - 2-column layout for balanced information density
+    - Color-coded performance metrics
+    - Real backend API integration with mock fallback
+
+    Args:
+        result: AnalysisResult from inference or None
+    """
     with st.container(border=True):
         st.markdown("#### Stage 3 · Inference Results")
         if result is None:
             st.info("Inference results appear once Stage 1 is complete.")
             return
 
-        # Check if this is from real backend
-        use_real_backend, _, _ = get_backend_status()
+        # Check backend status
+        use_real_backend, backend_healthy, force_mock = get_backend_status()
 
-        # Main metrics
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Primary Emotion", result.emotion.title())
-        col2.metric("Confidence", f"{result.confidence:.0%}")
-        col3.metric("Processing Time", f"{result.processing_time:.2f}s")
+        # Fetch model metadata (try real API first, then fallback to mock)
+        metadata = None
+        if use_real_backend and not force_mock:
+            metadata = fetch_latest_model_metadata()
 
-        # Probability distribution chart
+        if metadata is None:
+            metadata = get_mock_model_metadata()
+
+        # Extract data from result
+        emotion = result.emotion
+        confidence = result.confidence
+        processing_time_sec = result.processing_time
+        processing_time_ms = processing_time_sec * 1000  # Convert to milliseconds
+
+        # Get model version from metadata
+        model_version = metadata.get("version", "2")
+
+        # Get emotion icon
+        icon_name = get_emotion_icon(emotion)
+
+        # Get performance color and label
+        perf_color, perf_label = get_performance_color(processing_time_ms)
+
+        # === HERO SECTION: Primary Emotion with Large Icon ===
+        st.markdown("### Primary Emotion")
+
+        # Create centered layout for emotion display
+        col_left, col_center, col_right = st.columns([1, 2, 1])
+        with col_center:
+            # Display large Material icon with emotion
+            st.markdown(
+                f"""
+                <div style="text-align: center; padding: 1rem 0;">
+                    <span class="material-symbols-rounded" style="font-size: 80px; color: #be185d;">
+                        {icon_name}
+                    </span>
+                    <div style="font-size: 32px; font-weight: 600; margin-top: 0.5rem; color: #1f2937;">
+                        {emotion.title()}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        # === METRICS ROW: Confidence, Processing Time, Model Version ===
+        st.markdown("---")
+        metric_col1, metric_col2, metric_col3 = st.columns(3)
+
+        with metric_col1:
+            st.metric("Confidence", f"{confidence:.0%}")
+
+        with metric_col2:
+            st.metric("Processing Time", f"{processing_time_ms:.2f} ms")
+
+        with metric_col3:
+            st.metric("Model Version", f"v{model_version}")
+
+        st.markdown("---")
+
+        # === TWO-COLUMN CARD LAYOUT ===
+        col1, col2 = st.columns([1, 1])
+
+        # LEFT COLUMN: Model Information Card
+        with col1:
+            st.markdown("##### 📊 Model Information")
+            with st.container(border=True):
+                # Extract fields from metadata
+                model_name = metadata.get("model_name", "N/A")
+                model_type = metadata.get("model_type", "N/A")
+                feature_extraction = metadata.get("feature_extraction", "N/A")
+                feature_dimension = metadata.get("feature_dimension", "N/A")
+                dataset = metadata.get("dataset", "N/A")
+                created_date = metadata.get("created_date", "N/A")
+                emotion_classes = metadata.get("classes", [])
+
+                # Display fields in label: value format
+                st.markdown(f"**Model Name:** {model_name}")
+                st.markdown(f"**Architecture:** {model_type}")
+                st.markdown(f"**Feature Extraction:** {feature_extraction}")
+                st.markdown(f"**Feature Dimension:** {feature_dimension}")
+                st.markdown(f"**Training Dataset:** {dataset}")
+                st.markdown(f"**Created Date:** {created_date}")
+                st.markdown(f"**Emotion Classes:** {', '.join(emotion_classes)}")
+
+        # RIGHT COLUMN: Model Description Card
+        with col2:
+            st.markdown("##### 📝 Model Description")
+            with st.container(border=True):
+                description = metadata.get("description", "No description available.")
+                notes = metadata.get("notes", "")
+
+                st.markdown(description)
+
+                if notes:
+                    st.markdown("---")
+                    st.markdown("**Notes:**")
+                    st.markdown(notes)
+
+        # === SECOND ROW: Performance Metrics (Full Width) ===
+        st.markdown("##### ⚡ Performance Metrics")
+        with st.container(border=True):
+            perf_col1, perf_col2 = st.columns([1, 3])
+
+            with perf_col1:
+                st.metric("Processing Time", f"{processing_time_ms:.2f} ms")
+                st.markdown(f"**Performance:** {perf_label}")
+
+            with perf_col2:
+                # Create color-coded progress bar
+                # Normalize to 0-100 scale (500ms = 100%)
+                progress_value = min(processing_time_ms / 5, 100)  # Cap at 100%
+
+                st.markdown(
+                    f"""
+                    <div style="margin-top: 1rem;">
+                        <div style="background-color: #e5e7eb; border-radius: 8px; height: 24px; overflow: hidden;">
+                            <div style="background-color: {perf_color}; width: {progress_value}%; height: 100%;
+                                        display: flex; align-items: center; justify-content: center;
+                                        color: white; font-weight: 600; font-size: 12px;">
+                                {processing_time_ms:.2f} ms
+                            </div>
+                        </div>
+                        <div style="margin-top: 0.5rem; font-size: 12px; color: #6b7280;">
+                            <span style="color: #10b981;">● Fast (&lt;100ms)</span> &nbsp;
+                            <span style="color: #f59e0b;">● Medium (100-500ms)</span> &nbsp;
+                            <span style="color: #ef4444;">● Slow (≥500ms)</span>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+        # === PROBABILITY DISTRIBUTION (Full Width) ===
+        st.markdown("##### 🎭 Emotion Probability Distribution")
         st.plotly_chart(probability_bar(result.probabilities, accent="#facc15"), use_container_width=True)
 
-        # Additional metadata for real backend
-        if use_real_backend and hasattr(result, 'audio_metadata') and result.audio_metadata:
-            st.markdown("##### 📊 Audio Metadata")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Sample Rate", f"{result.audio_metadata.sample_rate} Hz")
-            col2.metric("File Size", f"{result.audio_metadata.file_size_bytes:,} bytes")
-            col3.metric("Duration", f"{result.audio_metadata.file_size_bytes / (result.audio_metadata.sample_rate * 2):.1f}s")
-
-        # SageMaker metadata if available
-        if use_real_backend and hasattr(result, 'inference_metadata') and result.inference_metadata:
-            st.markdown("##### 🚀 SageMaker Inference Details")
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Endpoint", result.inference_metadata.sagemaker_endpoint.split('-')[-1][:8] + "...")
-            col2.metric("Region", result.inference_metadata.aws_region)
-            col3.metric("Inference Time", f"{result.inference_metadata.invocation_time_seconds:.2f}s")
-            col4.metric("Response Size", f"{result.inference_metadata.response_size_bytes} bytes")
-
-        # Latency breakdown
-        if hasattr(result, 'latency_breakdown') and result.latency_breakdown:
-            st.markdown("##### ⏱️ Processing Latency Breakdown")
-            latency_data = []
-            for phase, time_taken in result.latency_breakdown.items():
-                latency_data.append({
-                    "Phase": phase.title(),
-                    "Time (s)": f"{time_taken:.2f}",
-                    "Percentage": f"{(time_taken / result.processing_time * 100):.1f}%"
-                })
-            latency_df = pd.DataFrame(latency_data)
-            st.dataframe(latency_df, use_container_width=True, hide_index=True)
-
-        # All emotion probabilities in detail
-        st.markdown("##### 🎭 Detailed Emotion Scores")
+        # === DETAILED SCORES TABLE ===
+        st.markdown("##### 📈 Detailed Emotion Scores")
         emotion_data = []
-        for emotion, probability in result.probabilities.items():
+        for emo, probability in result.probabilities.items():
             emotion_data.append({
-                "Emotion": emotion.title(),
+                "Emotion": emo.title(),
                 "Confidence": f"{probability:.3f}",
                 "Percentage": f"{probability * 100:.1f}%",
-                "Status": "🏆" if probability == result.confidence else "  "
+                "Status": "🏆" if probability == confidence else ""
             })
 
         # Sort by confidence
