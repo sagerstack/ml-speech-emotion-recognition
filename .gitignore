@@ -218,7 +218,10 @@ data/AudioWAV/
 dataset/
 datasets/
 models/
+!backend/models/
+!backend/models/**/*
 *.pkl
+!backend/models/**/*.pkl
 *.joblib
 *.h5
 *.pth
