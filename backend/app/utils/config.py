@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     max_audio_duration_seconds: int = 30
     supported_formats: list[str] = ["wav", "mp3", "m4a"]
 
+    # Local Model Configuration
+    models_dir: str = "models"  # Relative to backend directory
+
     # S3 Configuration for temporary audio storage
     s3_bucket_name: str | None = None
     s3_temp_prefix: str = "temp-audio/"

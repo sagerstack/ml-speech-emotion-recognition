@@ -1,6 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 import io
+import logging
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -14,6 +15,9 @@ from feature_charts import heatmap_chart, probability_bar, waveform_chart
 from mock_inference import AnalysisResult
 from real_inference import real_lab_backend, mock_lab_backend, get_backend_health
 from api_client import ML_APP_BASE_URL
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="Codex Iteration 5 · Speech Emotion Lab",
@@ -104,6 +108,7 @@ TAB_INDEX_KEY = "codex_iter5_tab_index"
 STATUS_KEY = "codex_iter5_status"
 AUDIO_DATA_KEY = "codex_iter5_audio_data"
 AUDIO_FEATURES_KEY = "codex_iter5_feature_summary"
+VARIANT_KEY = "codex_iter5_variant"
 
 
 def _load_audio_from_upload(file_obj) -> bytes:
@@ -305,70 +310,342 @@ def stage_feature_analysis(feature_summary: dict | None):
                     st.expander("Error Details").write(str(e))
 
 
+def get_emotion_icon(emotion: str) -> str:
+    """
+    Get Material Symbols Rounded icon name for a given emotion.
+
+    Args:
+        emotion: Emotion name (e.g., 'happy', 'sad', 'angry')
+
+    Returns:
+        str: Material icon name
+    """
+    emotion_icons = {
+        "angry": "sentiment_very_dissatisfied",
+        "disgust": "sick",
+        "fear": "sentiment_stressed",
+        "fearful": "sentiment_stressed",
+        "happy": "sentiment_very_satisfied",
+        "neutral": "sentiment_neutral",
+        "sad": "sentiment_dissatisfied",
+        "surprised": "sentiment_excited",
+        "calm": "sentiment_calm",
+    }
+    return emotion_icons.get(emotion.lower(), "sentiment_neutral")
+
+
+def get_performance_color(time_ms: float) -> tuple[str, str]:
+    """
+    Get color and label for performance metrics based on processing time.
+
+    Args:
+        time_ms: Processing time in milliseconds
+
+    Returns:
+        tuple: (color_hex, performance_label)
+    """
+    if time_ms < 100:
+        return "#10b981", "Fast"  # green
+    elif time_ms < 500:
+        return "#f59e0b", "Medium"  # yellow
+    else:
+        return "#ef4444", "Slow"  # red
+
+
+def get_mock_inference_result() -> dict:
+    """
+    Generate mock inference result matching real API structure.
+
+    Returns:
+        dict: Mock inference response
+    """
+    return {
+        "version": "2",
+        "prediction": {
+            "emotion": "happy",
+            "confidence": 0.95,
+            "all_probabilities": {
+                "angry": 0.01,
+                "disgust": 0.01,
+                "fear": 0.01,
+                "happy": 0.95,
+                "neutral": 0.01,
+                "sad": 0.01
+            }
+        },
+        "model_info": {
+            "type": "Pipeline (StandardScaler + RFE + SVC)",
+            "features_used": 78
+        },
+        "processing_time_ms": 45.32
+    }
+
+
+def get_mock_model_metadata() -> dict:
+    """
+    Generate mock model metadata matching real API structure.
+
+    Returns:
+        dict: Mock metadata response
+    """
+    return {
+        "version": "2",
+        "model_name": "SVM with MFCC Features",
+        "model_type": "Pipeline (StandardScaler + RFE + SVC)",
+        "description": "Support Vector Machine with MFCC-based features and Recursive Feature Elimination",
+        "feature_dimension": 78,
+        "feature_extraction": "MFCCs with delta and delta-delta coefficients",
+        "classes": ["angry", "disgust", "fear", "happy", "neutral", "sad"],
+        "num_classes": 6,
+        "created_date": "2024-01-20",
+        "dataset": "CREMA-D",
+        "notes": "Improved model with feature selection and SVM classifier"
+    }
+
+
+def fetch_latest_model_metadata() -> dict | None:
+    """
+    Fetch model metadata from the backend API.
+
+    Returns:
+        dict: Model metadata or None on error
+    """
+    try:
+        import requests
+        response = requests.get(
+            f"{ML_APP_BASE_URL}/v1/models/local/latest",
+            timeout=5
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.warning(f"Failed to fetch metadata: HTTP {response.status_code}")
+            return None
+    except Exception as e:
+        logger.warning(f"Error fetching metadata: {str(e)}")
+        return None
+
+
+def _top_probabilities(probabilities: dict[str, float], top_n: int = 5):
+    """Return sorted list of (emotion, prob) tuples."""
+    return sorted(probabilities.items(), key=lambda item: item[1], reverse=True)[:top_n]
+
+
+def _probability_hbar(probabilities: dict[str, float], accent: str = "#be185d", height: int = 230, top_n: int = 5):
+    """Compact horizontal bar chart for top probabilities."""
+    top_items = _top_probabilities(probabilities, top_n=top_n)
+    if not top_items:
+        return go.Figure()
+    emotions = [emo.title() for emo, _ in top_items][::-1]
+    values = [prob for _, prob in top_items][::-1]
+    fig = go.Figure(
+        go.Bar(
+            x=values,
+            y=emotions,
+            orientation="h",
+            marker=dict(color=accent, opacity=0.9),
+            text=[f"{v:.1%}" for v in values],
+            textposition="auto",
+            hovertemplate="%{y}: %{x:.1%}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        height=height,
+        margin=dict(l=70, r=20, t=30, b=30),
+        template="plotly_white",
+        xaxis=dict(tickformat=".0%", range=[0, 1]),
+        yaxis=dict(tickfont=dict(size=11)),
+    )
+    return fig
+
+
+def _emotion_color(emotion: str) -> str:
+    """Map emotion to accent color."""
+    colors = {
+        "happy": "#f59e0b",
+        "surprised": "#22c55e",
+        "angry": "#ef4444",
+        "fearful": "#6366f1",
+        "fear": "#6366f1",
+        "sad": "#3b82f6",
+        "neutral": "#6b7280",
+        "disgust": "#a855f7",
+        "calm": "#10b981",
+    }
+    return colors.get(emotion.lower(), "#be185d")
+
+
+def _latency_bar(latency_breakdown: dict[str, float], processing_time_ms: float):
+    """Stacked horizontal bar for latency phases."""
+    phases = latency_breakdown or {
+        "ingest": processing_time_ms * 0.1 / 1000,
+        "feature": processing_time_ms * 0.4 / 1000,
+        "inference": processing_time_ms * 0.4 / 1000,
+        "post": processing_time_ms * 0.1 / 1000,
+    }
+    colors = ["#0ea5e9", "#22c55e", "#f59e0b", "#a855f7"]
+    fig = go.Figure()
+    for idx, (name, seconds) in enumerate(phases.items()):
+        fig.add_trace(
+            go.Bar(
+                x=[seconds * 1000],
+                y=["Latency"],
+                orientation="h",
+                name=name.title(),
+                marker_color=colors[idx % len(colors)],
+                hovertemplate=f"{name.title()}: {{x:.1f}} ms<extra></extra>",
+            )
+        )
+    fig.update_layout(
+        barmode="stack",
+        height=110,
+        margin=dict(l=70, r=20, t=10, b=20),
+        template="plotly_white",
+        xaxis=dict(title="ms", tickformat=".0f"),
+        showlegend=False,
+    )
+    return fig
+
+
+def _hero_block(emotion: str, icon_name: str, confidence: float, accent: str = "#be185d"):
+    """Render primary emotion hero block."""
+    st.markdown(
+        f"""
+        <div style="padding: 0.5rem 0 0.25rem 0;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <span class="material-symbols-rounded" style="font-size: 72px; color: {accent}; line-height: 1;">{icon_name}</span>
+                <div>
+                    <div style="font-size: 30px; font-weight: 700; color: var(--text-color, inherit);">{emotion.title()}</div>
+                    <div style="font-size: 14px; color: var(--text-color, inherit); opacity: 0.85;">Primary emotion</div>
+                </div>
+            </div>
+            <div style="margin-top: 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; background: {accent}12; color: {accent}; padding: 0.35rem 0.7rem; border-radius: 999px; font-weight: 600; font-size: 13px;">
+                <span class="material-symbols-rounded" style="font-size: 18px;">verified</span>
+                {confidence:.0%} confidence
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _metadata_grid(metadata: dict):
+    """Two-column label/value grid for model metadata."""
+    left, right = st.columns(2)
+    with left:
+        st.markdown(f"**Model Name:** {metadata.get('model_name', 'N/A')}")
+        st.markdown(f"**Architecture:** {metadata.get('model_type', 'N/A')}")
+        st.markdown(f"**Feature Extraction:** {metadata.get('feature_extraction', 'N/A')}")
+    with right:
+        st.markdown(f"**Feature Dimension:** {metadata.get('feature_dimension', 'N/A')}")
+        st.markdown(f"**Training Dataset:** {metadata.get('dataset', 'N/A')}")
+        st.markdown(f"**Created Date:** {metadata.get('created_date', 'N/A')}")
+    st.markdown(f"**Emotion Classes:** {', '.join(metadata.get('classes', []))}")
+
+
+def _probability_table(probabilities: dict[str, float], highlight_top: bool = True):
+    """Compact dataframe for probabilities."""
+    rows = []
+    sorted_probs = _top_probabilities(probabilities, top_n=len(probabilities))
+    top_value = sorted_probs[0][1] if sorted_probs else None
+    for emo, prob in sorted_probs:
+        rows.append(
+            {
+                "Emotion": emo.title(),
+                "Probability": prob,
+                "Percent": f"{prob:.1%}",
+                "🏆": "🏆" if highlight_top and prob == top_value else "",
+            }
+        )
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, hide_index=True, column_config={"Probability": st.column_config.NumberColumn(format="%.3f")})
+
+
+def render_variant_compact_cards(payload: dict):
+    """Variant 1: Compact two-column with hero and stacked cards."""
+    left, right = st.columns([1, 1.2])
+    with left:
+        _hero_block(payload["emotion"], payload["icon_name"], payload["confidence"])
+        st.plotly_chart(_probability_hbar(payload["probabilities"], accent="#f97316"), use_container_width=True)
+        st.markdown("**Latency**")
+        st.plotly_chart(_latency_bar(payload["latency_breakdown"], payload["processing_time_ms"]), use_container_width=True)
+
+    with right:
+        metric_col1, metric_col2, metric_col3 = st.columns(3)
+        metric_col1.metric("Confidence", f"{payload['confidence']:.0%}")
+        metric_col2.metric("Processing Time", f"{payload['processing_time_ms']:.1f} ms")
+        metric_col3.metric("Model Version", f"v{payload['model_version']}")
+
+        with st.container(border=True):
+            st.info("Model Information")
+            _metadata_grid(payload["metadata"])
+
+
+# Single available layout
+VARIANT_RENDERERS = {
+    "Compact Cards": render_variant_compact_cards,
+}
+
+
 def stage_inference_results(result: AnalysisResult | None):
+    """
+    Display inference results using the Compact Cards layout.
+    """
     with st.container(border=True):
         st.markdown("#### Stage 3 · Inference Results")
         if result is None:
-            st.info("Inference results appear once Stage 1 is complete.")
+            st.info("Run inference to see results here.")
             return
 
-        # Check if this is from real backend
-        use_real_backend, _, _ = get_backend_status()
+        # Check backend status
+        use_real_backend, _, force_mock = get_backend_status()
 
-        # Main metrics
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Primary Emotion", result.emotion.title())
-        col2.metric("Confidence", f"{result.confidence:.0%}")
-        col3.metric("Processing Time", f"{result.processing_time:.2f}s")
+        # Fetch model metadata (try real API first, then fallback to mock)
+        metadata = None
+        if use_real_backend and not force_mock:
+            metadata = fetch_latest_model_metadata()
 
-        # Probability distribution chart
-        st.plotly_chart(probability_bar(result.probabilities, accent="#facc15"), use_container_width=True)
+        if metadata is None:
+            metadata = get_mock_model_metadata()
 
-        # Additional metadata for real backend
-        if use_real_backend and hasattr(result, 'audio_metadata') and result.audio_metadata:
-            st.markdown("##### 📊 Audio Metadata")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Sample Rate", f"{result.audio_metadata.sample_rate} Hz")
-            col2.metric("File Size", f"{result.audio_metadata.file_size_bytes:,} bytes")
-            col3.metric("Duration", f"{result.audio_metadata.file_size_bytes / (result.audio_metadata.sample_rate * 2):.1f}s")
+        # Extract data from result
+        emotion = result.emotion
+        confidence = result.confidence
+        processing_time_sec = result.processing_time
+        processing_time_ms = processing_time_sec * 1000  # Convert to milliseconds
 
-        # SageMaker metadata if available
-        if use_real_backend and hasattr(result, 'inference_metadata') and result.inference_metadata:
-            st.markdown("##### 🚀 SageMaker Inference Details")
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Endpoint", result.inference_metadata.sagemaker_endpoint.split('-')[-1][:8] + "...")
-            col2.metric("Region", result.inference_metadata.aws_region)
-            col3.metric("Inference Time", f"{result.inference_metadata.invocation_time_seconds:.2f}s")
-            col4.metric("Response Size", f"{result.inference_metadata.response_size_bytes} bytes")
+        model_version = metadata.get("version", "2")
+        icon_name = get_emotion_icon(emotion)
+        perf_color, perf_label = get_performance_color(processing_time_ms)
 
-        # Latency breakdown
-        if hasattr(result, 'latency_breakdown') and result.latency_breakdown:
-            st.markdown("##### ⏱️ Processing Latency Breakdown")
-            latency_data = []
-            for phase, time_taken in result.latency_breakdown.items():
-                latency_data.append({
-                    "Phase": phase.title(),
-                    "Time (s)": f"{time_taken:.2f}",
-                    "Percentage": f"{(time_taken / result.processing_time * 100):.1f}%"
-                })
-            latency_df = pd.DataFrame(latency_data)
-            st.dataframe(latency_df, use_container_width=True, hide_index=True)
+        audio_blob = st.session_state.get(AUDIO_DATA_KEY, {})
+        # Input data preview
+        with st.container(border=True):
+            st.markdown("**Input Data**")
+            st.markdown(f"**{audio_blob.get('filename', getattr(result, 'source', 'Audio Input'))}**")
+            if audio_blob.get("bytes"):
+                st.audio(audio_blob["bytes"])
+            else:
+                st.caption("Audio preview unavailable.")
 
-        # All emotion probabilities in detail
-        st.markdown("##### 🎭 Detailed Emotion Scores")
-        emotion_data = []
-        for emotion, probability in result.probabilities.items():
-            emotion_data.append({
-                "Emotion": emotion.title(),
-                "Confidence": f"{probability:.3f}",
-                "Percentage": f"{probability * 100:.1f}%",
-                "Status": "🏆" if probability == result.confidence else "  "
-            })
+        payload = {
+            "emotion": emotion,
+            "confidence": confidence,
+            "processing_time_ms": processing_time_ms,
+            "model_version": model_version,
+            "icon_name": icon_name,
+            "perf_color": perf_color,
+            "perf_label": perf_label,
+            "metadata": metadata,
+            "probabilities": result.probabilities,
+            "latency_breakdown": getattr(result, "latency_breakdown", {}),
+            "use_real_backend": use_real_backend,
+            "audio_label": audio_blob.get("filename", getattr(result, "source", "Audio Input")),
+            "audio_bytes": audio_blob.get("bytes"),
+            "result": result,
+        }
 
-        # Sort by confidence
-        emotion_df = pd.DataFrame(emotion_data)
-        emotion_df = emotion_df.sort_values("Confidence", ascending=False)
-        st.dataframe(emotion_df, use_container_width=True, hide_index=True)
+        render_variant_compact_cards(payload)
 
 
 def home_page():
