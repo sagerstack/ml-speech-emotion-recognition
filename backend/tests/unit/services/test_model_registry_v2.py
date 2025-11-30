@@ -24,7 +24,10 @@ from app.services.model_registry import ModelRegistry, ModelVersion, get_registr
 @pytest.fixture
 def models_path():
     """Path to models directory."""
-    return Path("/Users/sagarpratapsingh/dev/sagerstack/ml-speech-emotion-recognition/backend/models")
+    # Calculate path relative to this test file
+    # tests/unit/services/test_model_registry_v2.py -> ../../../models
+    backend_dir = Path(__file__).resolve().parents[3]
+    return backend_dir / "models"
 
 
 @pytest.fixture
