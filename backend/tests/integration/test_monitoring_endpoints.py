@@ -84,3 +84,11 @@ def test_fetch_missing_report_returns_404(client: TestClient, stub_monitoring_se
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Report not found"
+
+
+def test_fetch_report_rejects_path_traversal(client: TestClient, stub_monitoring_service, monkeypatch):
+    monkeypatch.setattr(monitoring_module, "get_monitoring_service", lambda: stub_monitoring_service)
+
+    response = client.get("/v1/monitoring/reports/../secret")
+
+    assert response.status_code == 404

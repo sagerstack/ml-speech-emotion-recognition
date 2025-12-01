@@ -249,14 +249,27 @@ class EvidentlyMonitoringService:
     def list_reports(self) -> List[Dict[str, object]]:
         return [report.to_dict() for report in self.report_history]
 
+    def _safe_report_path(self, report_name: str) -> Optional[Path]:
+        """Return a report path only if it resides within the reports directory."""
+
+        sanitized_name = Path(f"{report_name}.html").name
+        candidate = (self.reports_dir / sanitized_name).resolve()
+        reports_root = self.reports_dir.resolve()
+
+        try:
+            candidate.relative_to(reports_root)
+        except ValueError:
+            logger.warning("Rejected report path traversal attempt", report_name=report_name)
+            return None
+
+        return candidate if candidate.exists() else None
+
     def get_report_path(self, report_name: str) -> Optional[Path]:
         for report in self.report_history:
             if report.name == report_name:
                 return report.html_path
-        candidate = Path(self.reports_dir) / f"{report_name}.html"
-        if candidate.exists():
-            return candidate
-        return None
+
+        return self._safe_report_path(report_name)
 
 
 _monitoring_service: Optional[EvidentlyMonitoringService] = None
