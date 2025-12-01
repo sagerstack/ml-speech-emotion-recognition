@@ -217,15 +217,14 @@ def _generate_local_features(audio_bytes: bytes, label: str, engine: str):
         ref=np.max,
     )
     spectrogram = librosa.amplitude_to_db(np.abs(librosa.stft(y, n_fft=512)), ref=np.max)
-    chroma = librosa.feature.chroma_stft(y=y, sr=sr)
+    # Use chroma_cqt instead of chroma_stft to avoid streamlit caching issues
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
 
     # Feature summary
     rms = float(librosa.feature.rms(y=y).mean())
     centroid = float(librosa.feature.spectral_centroid(y=y, sr=sr).mean())
     zcr = float(librosa.feature.zero_crossing_rate(y).mean())
-    # Use hardcoded Hz values to avoid librosa caching issues with note_to_hz
-    # C2 = 65.41 Hz, C7 = 2093.00 Hz
-    pitch = float(librosa.yin(y, fmin=65.41, fmax=2093.00).mean())
+    # Removed librosa.yin pitch calculation to avoid streamlit caching issues
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
     mfcc_std = float(np.std(mfcc))
 
@@ -233,7 +232,6 @@ def _generate_local_features(audio_bytes: bytes, label: str, engine: str):
         ("RMS Energy", f"{rms:.3f}", "Linear"),
         ("Spectral Centroid", f"{centroid:.1f} Hz", "Frequency"),
         ("Zero Crossing Rate", f"{zcr:.3f}", "Rate"),
-        ("Pitch Mean", f"{pitch:.1f} Hz", "Frequency"),
         ("MFCC Spread", f"{mfcc_std:.3f}", "Std Dev"),
         ("Duration", f"{len(y)/sr:.1f} s", "Time"),
     ]
@@ -272,19 +270,34 @@ def stage_audio_recording() -> AnalysisResult | None:
         display_model_metadata_card()
         st.markdown("<br>", unsafe_allow_html=True)
 
-        col1, col2 = st.columns([1.4, 1])
-        with col1:
+        # Input audio selection toggle
+        audio_input_mode = st.radio(
+            "Select Input Audio Mode",
+            options=["Audio File", "Live Recording"],
+            horizontal=True,
+            key="audio_input_mode",
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Initialize upload and recording variables
+        upload = None
+        recording = None
+
+        # Show only the selected input control
+        if audio_input_mode == "Audio File":
             upload = st.file_uploader(
                 "Upload Audio File",
                 type=["wav", "mp3", "flac", "m4a"],
-                key="iter5-upload",
+                key="iter6-upload",
             )
-            if upload:
-                st.audio(upload)
-        with col2:
-            recording = st.audio_input("Record Live Audio", key="iter5-record")
-            if recording:
-                st.audio(recording)
+        else:  # Live Recording
+            recording = st.audio_input("Record Live Audio", key="iter6-record")
+
+        # Single playback control for the selected audio
+        if upload:
+            st.audio(upload)
+        elif recording:
+            st.audio(recording)
 
         # Always use local inference endpoint
         engine = "local"

@@ -488,7 +488,7 @@ class TestExtractFeatures:
 
         audio_data = np.random.randn(22050)  # 1 second of audio
 
-        with patch('librosa.feature.chroma_stft', side_effect=Exception("Chroma extraction error")):
+        with patch('librosa.feature.chroma_cqt', side_effect=Exception("Chroma extraction error")):
             with pytest.raises(AudioProcessingError, match="Feature extraction failed"):
                 processor.extract_features(audio_data, 22050)
 
