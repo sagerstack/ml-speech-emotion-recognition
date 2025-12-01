@@ -113,7 +113,7 @@ class SpeechEmotionAPIClient:
         try:
             response = self.session.get(
                 f"{self.base_url}/health",
-                timeout=5
+                timeout=15  # Increased timeout for EKS deployment
             )
             return response.status_code == 200
         except (RequestException, Timeout, ConnectionError) as e:
