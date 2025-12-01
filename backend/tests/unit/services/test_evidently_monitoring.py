@@ -120,3 +120,26 @@ def test_list_and_lookup_reports(tmp_path, monkeypatch):
 
     assert service.get_report_path(report_info.name) == report_info.html_path
     assert service.get_report_path("missing") is None
+
+
+def test_get_report_path_prevents_traversal(tmp_path: Path, monkeypatch):
+    reference_csv = tmp_path / "reference.csv"
+    pd.DataFrame([{"timestamp": datetime.utcnow(), "actual_emotion": "happy"}]).to_csv(
+        reference_csv, index=False
+    )
+
+    external_dir = tmp_path / "outside"
+    external_dir.mkdir()
+    outside_report = external_dir / "escape.html"
+    outside_report.write_text("<html>escape</html>")
+
+    buffer = PredictionBuffer(max_records=1)
+    buffer.add(_prediction_record())
+
+    service = EvidentlyMonitoringService(
+        buffer=buffer,
+        reference_data_path=str(reference_csv),
+        reports_dir=str(tmp_path / "reports"),
+    )
+
+    assert service.get_report_path("../outside/escape") is None
