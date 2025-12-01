@@ -33,6 +33,8 @@ pydantic-settings = "^2.6.0"
 # Monitoring and logging
 prometheus-client = "^0.21.0"
 structlog = "^24.4.0"
+evidently = "^0.4.22"
+pandas = "^2.2.3"
 
 # HTTP client for URL-based predictions
 httpx = "^0.28.0"
