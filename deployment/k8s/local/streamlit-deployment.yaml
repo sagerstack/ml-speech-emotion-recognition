@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
       - name: streamlit
-        image: sagerstack/ml-speech-frontend:latest
+        image: sagerstack/ml-speech-emotion-streamlit:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8501
