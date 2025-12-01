@@ -59,6 +59,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY backend/app/ ./app/
 COPY backend/.env.example .env
 
+# Copy ML models
+COPY backend/models/ ./models/
+
 # Set correct permissions
 RUN chown -R app:app /app
 
