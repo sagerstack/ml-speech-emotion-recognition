@@ -12,8 +12,8 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-from fastapi import Response
+from prometheus_client import Counter, Histogram
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.v1 import api_router
 from app.utils.config import get_settings
@@ -23,19 +23,8 @@ from app.utils.logging import setup_logging
 settings = get_settings()
 setup_logging()
 
-# Define Prometheus metrics
-REQUEST_COUNT = Counter(
-    'http_requests_total',
-    'Total HTTP requests',
-    ['method', 'endpoint', 'status_code']
-)
-
-REQUEST_DURATION = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request duration in seconds',
-    ['method', 'endpoint']
-)
-
+# Define custom ML-specific Prometheus metrics
+# Note: Basic HTTP metrics (requests, duration, etc.) are handled by FastAPI Instrumentator
 PREDICTION_REQUESTS = Counter(
     'prediction_requests_total',
     'Total prediction requests',
@@ -72,33 +61,12 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
-async def metrics_middleware(request, call_next):
-    """Middleware to collect Prometheus metrics"""
-    import time
-
-    start_time = time.time()
-
-    response = await call_next(request)
-
-    # Record request duration
-    duration = time.time() - start_time
-    REQUEST_DURATION.labels(
-        method=request.method,
-        endpoint=request.url.path
-    ).observe(duration)
-
-    # Record request count
-    REQUEST_COUNT.labels(
-        method=request.method,
-        endpoint=request.url.path,
-        status_code=str(response.status_code)
-    ).inc()
-
-    return response
-
 # Include API router
 app.include_router(api_router, prefix=settings.api_v1_str)
+
+# Initialize and instrument the app with Prometheus metrics
+# This automatically adds metrics for requests, duration, responses, etc.
+Instrumentator().instrument(app).expose(app)
 
 
 @app.get("/")
@@ -121,12 +89,6 @@ async def health_check() -> dict[str, Any]:
         "service": "ml-emotion-api",
         "version": "1.0.0",
     }
-
-
-@app.get("/metrics")
-async def metrics():
-    """Prometheus metrics endpoint"""
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 def main() -> None:
