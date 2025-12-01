@@ -59,7 +59,7 @@ def fetch_model_metadata():
     try:
         response = requests.get(
             f"{ML_APP_BASE_URL}/v1/models/local/latest",
-            timeout=5
+            timeout=15  # Increased timeout for EKS deployment
         )
         if response.status_code == 200:
             return response.json()
@@ -223,7 +223,9 @@ def _generate_local_features(audio_bytes: bytes, label: str, engine: str):
     rms = float(librosa.feature.rms(y=y).mean())
     centroid = float(librosa.feature.spectral_centroid(y=y, sr=sr).mean())
     zcr = float(librosa.feature.zero_crossing_rate(y).mean())
-    pitch = float(librosa.yin(y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7')).mean())
+    # Use hardcoded Hz values to avoid librosa caching issues with note_to_hz
+    # C2 = 65.41 Hz, C7 = 2093.00 Hz
+    pitch = float(librosa.yin(y, fmin=65.41, fmax=2093.00).mean())
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
     mfcc_std = float(np.std(mfcc))
 
