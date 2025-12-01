@@ -9,6 +9,7 @@ import streamlit_antd_components as stac
 import pandas as pd
 import numpy as np
 import librosa
+import requests
 
 import os
 from feature_charts import heatmap_chart, probability_bar, waveform_chart
@@ -51,6 +52,84 @@ def get_active_backend():
     """Get the active backend (real or mock)"""
     use_real_backend, _, _ = get_backend_status()
     return real_lab_backend if use_real_backend else mock_lab_backend
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def fetch_model_metadata():
+    """Fetch latest model metadata from backend API"""
+    try:
+        response = requests.get(
+            f"{ML_APP_BASE_URL}/v1/models/local/latest",
+            timeout=5
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.warning(f"Failed to fetch model metadata: {response.status_code}")
+            return None
+    except Exception as e:
+        logger.error(f"Error fetching model metadata: {str(e)}")
+        return None
+
+def display_model_metadata_card():
+    """Display a card showing current model metadata"""
+    use_real_backend, backend_healthy, _ = get_backend_status()
+
+    if not use_real_backend:
+        # Show mock mode indicator with purple border
+        st.markdown("""
+        <div style="background: #f3f4f6; border: 2px solid #9333ea; padding: 14px 18px;
+                    border-radius: 8px; color: #374151; font-size: 13px;">
+            <div style="font-weight: 600; margin-bottom: 6px; color: #6b7280;">
+                🎭 Current Mode
+            </div>
+            <div style="font-size: 12px; color: #6b7280;">
+                • <strong>Mode:</strong> Mock (Simulated Results)
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        return
+
+    metadata = fetch_model_metadata()
+
+    if metadata:
+        model_name = metadata.get('model_name', 'N/A')
+        version = metadata.get('version', 'N/A')
+        model_type = metadata.get('model_type', 'N/A')
+        features = metadata.get('feature_dimension', 'N/A')
+        classes = metadata.get('num_classes', 'N/A')
+        dataset = metadata.get('dataset', 'N/A')
+        description = metadata.get('description', '')
+
+        st.markdown(f"""
+        <div style="background: #f3f4f6; border: 2px solid #10b981; padding: 14px 18px;
+                    border-radius: 8px; color: #374151; font-size: 13px;">
+            <div style="font-weight: 600; margin-bottom: 10px; color: #1f2937;">
+                🤖 Model Online
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px;
+                        font-size: 12px; color: #4b5563;">
+                <div>• <strong>Model Version:</strong> v{version}</div>
+                <div>• <strong>Model Name:</strong> {model_name}</div>
+                <div>• <strong>Model Type:</strong> {model_type}</div>
+                <div>• <strong>Feature Dimension:</strong> {features}</div>
+                <div>• <strong>Number of Classes:</strong> {classes}</div>
+                <div>• <strong>Training Dataset:</strong> {dataset}</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # Backend is selected but unavailable - show red border
+        st.markdown("""
+        <div style="background: #f3f4f6; border: 2px solid #ef4444; padding: 14px 18px;
+                    border-radius: 8px; color: #374151; font-size: 13px;">
+            <div style="font-weight: 600; margin-bottom: 6px; color: #dc2626;">
+                ⚠️ Model Offline
+            </div>
+            <div style="font-size: 12px; color: #6b7280;">
+                • Unable to fetch model metadata from backend
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 st.markdown(
     """
@@ -187,7 +266,11 @@ def stage_audio_recording() -> AnalysisResult | None:
         st.markdown("### Stage 1 · Audio Recording")
         st.caption("Select an audio file or record live audio for analysis.")
 
-        col1, col2, col3 = st.columns([1.4, 1, 1])
+        # Display model metadata at the top
+        display_model_metadata_card()
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        col1, col2 = st.columns([1.4, 1])
         with col1:
             upload = st.file_uploader(
                 "Upload Audio File",
@@ -200,14 +283,9 @@ def stage_audio_recording() -> AnalysisResult | None:
             recording = st.audio_input("Record Live Audio", key="iter5-record")
             if recording:
                 st.audio(recording)
-        with col3:
-            engine = st.selectbox(
-                "Processing Engine",
-                ["local", "sagemaker_prod", "dual_stack"],
-                key="iter5-engine",
-                help="local: Local processing\nsagemaker_prod: Production SageMaker endpoint\ndual_stack: Both for comparison"
-            )
-            st.slider("Confidence Threshold", 0.0, 1.0, 0.5, 0.05, key="iter5-confidence-threshold")
+
+        # Always use local inference endpoint
+        engine = "local"
 
         action = st.button("🚀 Analyze Audio", key="iter5-launch-btn", type="primary")
 
@@ -282,10 +360,11 @@ def stage_feature_analysis(feature_summary: dict | None):
                     result = backend.analyze(file_obj, engine=engine)
 
                 st.session_state[PAGE_KEY] = result
-                st.session_state[STATUS_KEY] = f"✅ {filename} processed via {engine}."
 
                 # Update history after successful inference
                 use_real_backend, _, _ = get_backend_status()
+                backend_type = "API backend" if use_real_backend else "Mock mode"
+                st.session_state[STATUS_KEY] = f"✅ {filename} processed via {backend_type}."
                 history = st.session_state.setdefault("codex_iter5_history", [])
                 history.insert(
                     0,
