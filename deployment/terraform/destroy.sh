@@ -54,13 +54,22 @@ if [ "$SKIP_K8S_CLEANUP" = false ]; then
     echo ""
     echo -e "${YELLOW}[Step 2/5]${NC} Deleting Kubernetes resources..."
 
-    # Check if namespace exists
+    # Check if app namespace exists
     if kubectl get namespace "$K8S_NAMESPACE" &>/dev/null; then
         echo -e "${YELLOW}   Deleting namespace: ${K8S_NAMESPACE}${NC}"
         kubectl delete namespace "$K8S_NAMESPACE" --timeout=120s || true
         echo -e "${GREEN}✓${NC} Namespace deleted"
     else
         echo -e "${YELLOW}⚠️  Namespace ${K8S_NAMESPACE} not found, skipping...${NC}"
+    fi
+
+    # Check if monitoring namespace exists
+    if kubectl get namespace "monitoring" &>/dev/null; then
+        echo -e "${YELLOW}   Deleting monitoring namespace...${NC}"
+        kubectl delete namespace "monitoring" --timeout=120s || true
+        echo -e "${GREEN}✓${NC} Monitoring namespace deleted"
+    else
+        echo -e "${YELLOW}⚠️  Monitoring namespace not found, skipping...${NC}"
     fi
 
     # Also clean up any standalone load balancers/services outside the namespace
