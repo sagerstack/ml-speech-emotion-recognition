@@ -19,6 +19,10 @@ spec:
         app: ml-speech-emotion-recognition
         service: backend
         environment: local
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: backend
