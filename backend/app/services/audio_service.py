@@ -219,11 +219,10 @@ class AudioProcessor:
                 hop_length=512
             )
 
-            # Extract chroma features using STFT
-            chroma = librosa.feature.chroma_stft(
+            # Extract chroma features using CQT to avoid caching issues
+            chroma = librosa.feature.chroma_cqt(
                 y=audio_data,
                 sr=sample_rate,
-                n_fft=2048,
                 hop_length=512
             )
 
