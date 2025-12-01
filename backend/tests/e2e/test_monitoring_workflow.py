@@ -47,7 +47,7 @@ def client():
     return TestClient(app)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def monitoring_service(tmp_path_factory, monkeypatch):
     tmp_dir = tmp_path_factory.mktemp("monitoring_e2e")
     reference_csv = tmp_dir / "reference.csv"

@@ -52,8 +52,8 @@ COMPARISON_REQUESTS = Counter(
 
 @router.post("/infer/local/latest")
 async def infer_latest(
-    file: UploadFile = File(...),
     background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
 ) -> Dict[str, Any]:
     """
     Infer emotion using the latest model version.
@@ -172,9 +172,9 @@ async def infer_latest(
 
 @router.post("/infer/local/{version}")
 async def infer_version(
+    background_tasks: BackgroundTasks,
     version: str = PathParam(..., description="Model version number (e.g., 1, 2, 3)"),
     file: UploadFile = File(...),
-    background_tasks: BackgroundTasks,
 ) -> Dict[str, Any]:
     """
     Infer emotion using a specific model version.
