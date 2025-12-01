@@ -78,6 +78,21 @@ module "eks" {
 
   enable_irsa = true
 
+  # EKS Addons
+  # Note: aws-ebs-csi-driver is auto-installed by EKS, managed outside terraform
+  # IAM role is created below via ebs_csi_driver_irsa module
+  cluster_addons = {
+    kube-proxy = {
+      most_recent = true
+    }
+    vpc-cni = {
+      most_recent = true
+    }
+    coredns = {
+      most_recent = true
+    }
+  }
+
   eks_managed_node_groups = {
     default = {
       min_size     = var.node_group_min_size
@@ -122,6 +137,51 @@ module "eks" {
   }
 
   tags = local.tags
+}
+
+# ==============================================================================
+# EBS CSI Driver IAM Role (IRSA)
+# ==============================================================================
+module "ebs_csi_driver_irsa" {
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version = "~> 5.0"
+
+  role_name_prefix = "${local.project_name}-ebs-csi-"
+
+  attach_ebs_csi_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks.oidc_provider_arn
+      namespace_service_accounts = ["kube-system:ebs-csi-controller-sa"]
+    }
+  }
+
+  tags = local.tags
+}
+
+# Attach IAM role to existing EBS CSI driver addon (auto-created by EKS)
+resource "null_resource" "attach_ebs_csi_role" {
+  depends_on = [
+    module.eks,
+    module.ebs_csi_driver_irsa
+  ]
+
+  triggers = {
+    role_arn     = module.ebs_csi_driver_irsa.iam_role_arn
+    cluster_name = module.eks.cluster_name
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws eks update-addon \
+        --cluster-name ${module.eks.cluster_name} \
+        --addon-name aws-ebs-csi-driver \
+        --service-account-role-arn ${module.ebs_csi_driver_irsa.iam_role_arn} \
+        --region ${var.aws_region} \
+        --resolve-conflicts OVERWRITE || true
+    EOT
+  }
 }
 
 data "tls_certificate" "github" {
