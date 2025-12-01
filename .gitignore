@@ -248,3 +248,5 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 terraform.tfvars.backup
+.DS_Store
+**/.DS_Store
