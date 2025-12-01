@@ -42,3 +42,9 @@ output "vpc_id" {
   description = "VPC ID for cleanup script."
   value       = module.vpc.vpc_id
 }
+
+# EBS CSI Driver IAM Role ARN
+output "ebs_csi_driver_role_arn" {
+  description = "IAM role ARN for EBS CSI driver service account"
+  value       = module.ebs_csi_driver_irsa.iam_role_arn
+}
