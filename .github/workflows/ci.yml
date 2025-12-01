@@ -36,6 +36,9 @@ jobs:
           poetry config virtualenvs.in-project true
           poetry config virtualenvs.create true
 
+      - name: Regenerate lockfile
+        run: poetry lock --no-interaction --no-ansi
+
       - name: Cache virtualenv
         uses: actions/cache@v4
         with:
