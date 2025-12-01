@@ -78,6 +78,22 @@ module "eks" {
 
   enable_irsa = true
 
+  # EKS Addons
+  cluster_addons = {
+    aws-ebs-csi-driver = {
+      most_recent = true
+    }
+    kube-proxy = {
+      most_recent = true
+    }
+    vpc-cni = {
+      most_recent = true
+    }
+    coredns = {
+      most_recent = true
+    }
+  }
+
   eks_managed_node_groups = {
     default = {
       min_size     = var.node_group_min_size
