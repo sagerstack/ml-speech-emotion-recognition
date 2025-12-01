@@ -1,0 +1,386 @@
+# =====================================================
+# LOCAL MONITORING STACK FOR MINIKUBE
+# =====================================================
+# Simplified Prometheus + Grafana + Loki for local development
+#
+# To enable monitoring:
+#   ./deploy-local.sh --with-monitoring
+#   OR
+#   kubectl apply -f monitoring-stack.yaml
+#
+# To disable monitoring:
+#   kubectl delete -f monitoring-stack.yaml
+#
+# This is SEPARATE from main application deployment
+# =====================================================
+
+---
+# Namespace for monitoring
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+    environment: local
+---
+# =====================================================
+# PROMETHEUS
+# =====================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-sa
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/metrics
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources:
+  - deployments
+  - replicasets
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus-sa
+  namespace: monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 30s
+      evaluation_interval: 30s
+
+    scrape_configs:
+      # FastAPI Backend scraping
+      - job_name: 'backend'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - ml-speech-emotion
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_service]
+            action: keep
+            regex: backend
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+
+      # Prometheus self-monitoring
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus-sa
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        ports:
+        - containerPort: 9090
+          name: http
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus/'
+          - '--storage.tsdb.retention.time=7d'
+          - '--web.enable-lifecycle'
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus/
+        - name: prometheus-storage
+          mountPath: /prometheus/
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: prometheus-storage
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 9090
+    targetPort: 9090
+  selector:
+    app: prometheus
+---
+# =====================================================
+# LOKI (Log Aggregation)
+# =====================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: monitoring
+data:
+  loki.yml: |
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+
+    ingester:
+      lifecycler:
+        address: 127.0.0.1
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+        final_sleep: 0s
+      chunk_idle_period: 1h
+      max_chunk_age: 1h
+      chunk_target_size: 1048576
+      chunk_retain_period: 30s
+      wal:
+        enabled: true
+        dir: /loki/wal
+
+    schema_config:
+      configs:
+        - from: 2020-10-24
+          store: boltdb-shipper
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 24h
+
+    storage_config:
+      boltdb_shipper:
+        active_index_directory: /loki/boltdb-shipper-active
+        cache_location: /loki/boltdb-shipper-cache
+      filesystem:
+        directory: /loki/chunks
+
+    compactor:
+      working_directory: /loki/compactor
+      compaction_interval: 10m
+
+    limits_config:
+      allow_structured_metadata: false
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+      volume_enabled: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: monitoring
+  labels:
+    app: loki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+      - name: loki
+        image: grafana/loki:latest
+        ports:
+        - containerPort: 3100
+          name: http
+        args:
+          - -config.file=/etc/loki/loki.yml
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: loki-config
+          mountPath: /etc/loki
+        - name: loki-storage
+          mountPath: /loki
+      volumes:
+      - name: loki-config
+        configMap:
+          name: loki-config
+      - name: loki-storage
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 3100
+    targetPort: 3100
+  selector:
+    app: loki
+---
+# =====================================================
+# GRAFANA
+# =====================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-secret
+  namespace: monitoring
+type: Opaque
+stringData:
+  admin-password: "admin"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: true
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        editable: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: "admin"
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-secret
+              key: admin-password
+        - name: GF_SERVER_ROOT_URL
+          value: "%(protocol)s://%(domain)s:%(http_port)s/"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+        - name: grafana-datasources
+          mountPath: /etc/grafana/provisioning/datasources
+      volumes:
+      - name: grafana-storage
+        emptyDir: {}
+      - name: grafana-datasources
+        configMap:
+          name: grafana-datasources
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+  selector:
+    app: grafana
