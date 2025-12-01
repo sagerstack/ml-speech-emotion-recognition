@@ -9,7 +9,7 @@ metadata:
     environment: production
     version: v1
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: ml-speech-emotion-recognition
@@ -105,7 +105,7 @@ spec:
         resources:
           requests:
             memory: "1Gi"
-            cpu: "500m"
+            cpu: "250m"
           limits:
             memory: "2Gi"
             cpu: "1000m"
@@ -227,7 +227,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: backend
-  minReplicas: 3
+  minReplicas: 2
   maxReplicas: 10
   metrics:
   - type: Resource
