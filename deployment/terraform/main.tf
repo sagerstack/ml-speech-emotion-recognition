@@ -160,6 +160,30 @@ module "ebs_csi_driver_irsa" {
   tags = local.tags
 }
 
+# Attach IAM role to existing EBS CSI driver addon (auto-created by EKS)
+resource "null_resource" "attach_ebs_csi_role" {
+  depends_on = [
+    module.eks,
+    module.ebs_csi_driver_irsa
+  ]
+
+  triggers = {
+    role_arn     = module.ebs_csi_driver_irsa.iam_role_arn
+    cluster_name = module.eks.cluster_name
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws eks update-addon \
+        --cluster-name ${module.eks.cluster_name} \
+        --addon-name aws-ebs-csi-driver \
+        --service-account-role-arn ${module.ebs_csi_driver_irsa.iam_role_arn} \
+        --region ${var.aws_region} \
+        --resolve-conflicts OVERWRITE || true
+    EOT
+  }
+}
+
 data "tls_certificate" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
