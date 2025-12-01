@@ -73,9 +73,11 @@ if minikube status &>/dev/null; then
   echo "Minikube is already running ✓"
 else
   echo "Minikube is not running. Starting minikube..."
-  minikube start --cpus=4 --memory=8192
+  echo "Configuring: 4 CPUs, 6GB RAM"
+  minikube start --cpus=4 --memory=6144
   if [ $? -ne 0 ]; then
     echo "Error: Failed to start minikube"
+    echo "Tip: Check Docker Desktop has at least 6GB memory allocated"
     exit 1
   fi
   echo "Minikube started successfully ✓"
