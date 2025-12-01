@@ -52,10 +52,9 @@ def extract_features(audio_bytes: bytes, filename: str) -> np.ndarray:
         zcr = np.mean(librosa.feature.zero_crossing_rate(y=data).T, axis=0)
         result = np.hstack((result, zcr))
 
-        # 2. Chroma STFT (12 features)
-        stft = np.abs(librosa.stft(data))
-        chroma_stft = np.mean(librosa.feature.chroma_stft(S=stft, sr=sample_rate).T, axis=0)
-        result = np.hstack((result, chroma_stft))
+        # 2. Chroma CQT (12 features) - using chroma_cqt to avoid caching issues
+        chroma_cqt = np.mean(librosa.feature.chroma_cqt(y=data, sr=sample_rate).T, axis=0)
+        result = np.hstack((result, chroma_cqt))
 
         # 3. MFCC (20 features - default n_mfcc)
         mfcc = np.mean(librosa.feature.mfcc(y=data, sr=sample_rate).T, axis=0)
