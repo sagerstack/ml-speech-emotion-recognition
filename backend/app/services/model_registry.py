@@ -230,7 +230,8 @@ class ModelRegistry:
         self,
         version: str,
         audio_bytes: bytes,
-        filename: str
+        filename: str,
+        include_features: bool = False,
     ) -> Dict:
         """
         Run inference using a specific model version.
@@ -290,17 +291,45 @@ class ModelRegistry:
                 all_probs = {prediction: 1.0}
                 confidence = 1.0
 
-            return {
+            result = {
                 "emotion": prediction,
                 "confidence": float(confidence),
                 "all_probabilities": all_probs,
                 "model_version": version,
                 "model_type": model_version.metadata.get("model_type", "unknown"),
-                "feature_dimension": model_version.feature_dimension
+                "feature_dimension": model_version.feature_dimension,
             }
+
+            if include_features:
+                feature_names = self._feature_names(model_version)
+                result["features"] = dict(zip(feature_names, features.tolist()))
+
+            return result
 
         except Exception as e:
             raise ValueError(f"Prediction failed: {str(e)}")
+
+    def _feature_names(self, model_version: ModelVersion) -> list[str]:
+        if model_version.version == "1" and model_version.feature_dimension == 162:
+            return [
+                "zero_crossing_rate",
+                *[f"chroma_{i}" for i in range(12)],
+                *[f"mfcc_{i}" for i in range(20)],
+                "rms_energy",
+                *[f"mel_{i}" for i in range(128)],
+            ]
+
+        if model_version.version == "2" and model_version.feature_dimension == 78:
+            return [
+                *[f"mfcc_mean_{i}" for i in range(13)],
+                *[f"mfcc_std_{i}" for i in range(13)],
+                *[f"delta_mean_{i}" for i in range(13)],
+                *[f"delta_std_{i}" for i in range(13)],
+                *[f"delta2_mean_{i}" for i in range(13)],
+                *[f"delta2_std_{i}" for i in range(13)],
+            ]
+
+        return [f"feature_{i}" for i in range(model_version.feature_dimension)]
 
     def predict_all(self, audio_bytes: bytes, filename: str) -> List[Dict]:
         """
