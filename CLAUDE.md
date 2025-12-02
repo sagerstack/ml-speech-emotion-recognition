@@ -185,8 +185,6 @@ The project appears to need:
 - use github cli (gh cli) for git commands
 - always use python-developer subagent when writing python code and tests
 - for all streamlit python code changes, use subagent streamlit-developer
-- reference @frontend/streamlit_app/docs/streamlit_antd_components.md for streamlit antdesign components
-- refernece @frontend/streamlit_app/docs/streamlit_shadcn_ui.md for streamlit shadcn ui components
 - for streamlit app code changes, always run the streamlit app before you respond back to me, check the frontend for any runtime errors and fix them
 - for streamlit app, always launch on port 8510
 - always check streamlit official documentation for referencing HOW to implement a capability or feature in streamlit- https://docs.streamlit.io/develop/api-reference
