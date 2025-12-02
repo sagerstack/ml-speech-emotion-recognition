@@ -34,6 +34,12 @@ spec:
           value: "0.0.0.0"
         - name: ML_APP_BASE_URL
           value: "http://backend:8000"
+        - name: REQUEST_TIMEOUT
+          value: "120"
+        - name: ENABLE_MOCK_MODE
+          value: "false"
+        - name: FALLBACK_TO_MOCK
+          value: "true"
         resources:
           requests:
             memory: "512Mi"
@@ -47,15 +53,15 @@ spec:
             port: 8501
           initialDelaySeconds: 40
           periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+          timeoutSeconds: 10
+          failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /_stcore/health
             port: 8501
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 3
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 10
           failureThreshold: 3
         securityContext:
           runAsNonRoot: true

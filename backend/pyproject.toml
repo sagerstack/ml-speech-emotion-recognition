@@ -39,8 +39,13 @@ pandas = "^2.2.3"
 # HTTP client for URL-based predictions
 httpx = "^0.28.0"
 
-# Development and testing dependencies
-prometheus-fastapi-instrumentator = "^7.1.0"
+# OpenTelemetry for distributed tracing
+opentelemetry-api = "^1.27.0"
+opentelemetry-sdk = "^1.27.0"
+opentelemetry-exporter-otlp-proto-grpc = "^1.27.0"
+opentelemetry-instrumentation-fastapi = "^0.48b0"
+opentelemetry-instrumentation-logging = "^0.48b0"
+opentelemetry-instrumentation-httpx = "^0.48b0"
 [tool.poetry.group.dev.dependencies]
 # Testing framework
 pytest = "^8.3.0"
