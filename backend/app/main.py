@@ -4,37 +4,51 @@ FastAPI Application for ML Speech Emotion Recognition
 This is the main entry point for the FastAPI backend service that provides
 emotion prediction capabilities through AWS SageMaker integration.
 
+Observability stack includes:
+- OpenTelemetry distributed tracing (export to Tempo)
+- Prometheus metrics (compatible with FastAPI Observability Dashboard 16110)
+- Structured logging with trace correlation (export to Loki)
+
 Configuration: Local development first, then AWS deployment
 """
 
+import os
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_client import Counter, Histogram
-from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter, Histogram, generate_latest
 
 from app.api.v1 import api_router
+from app.middleware.prometheus import PrometheusMiddleware, metrics_endpoint
 from app.utils.config import get_settings
-from app.utils.logging import setup_logging
+from app.utils.logging import setup_logging, get_logger, RequestLoggingMiddleware
+from app.utils.observability import setup_tracing
 
 # Initialize settings and logging
 settings = get_settings()
 setup_logging()
 
+# Get logger for this module
+logger = get_logger(__name__)
+
 # Define custom ML-specific Prometheus metrics
-# Note: Basic HTTP metrics (requests, duration, etc.) are handled by FastAPI Instrumentator
+# Note: Basic HTTP metrics are handled by custom PrometheusMiddleware
 PREDICTION_REQUESTS = Counter(
-    'prediction_requests_total',
-    'Total prediction requests',
-    ['emotion', 'confidence_level']
+    "ml_prediction_requests_total",
+    "Total prediction requests",
+    ["emotion", "confidence_level"],
 )
 
 AUDIO_PROCESSING_DURATION = Histogram(
-    'audio_processing_duration_seconds',
-    'Time spent processing audio files'
+    "ml_audio_processing_duration_seconds",
+    "Time spent processing audio files",
+    buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, float("inf")),
 )
+
+# Application name for observability
+APP_NAME = "ml-emotion-api"
 
 # Create FastAPI application
 app = FastAPI(
@@ -45,6 +59,24 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
+
+# Setup OpenTelemetry tracing (must be done before adding middleware)
+# Only setup if OTLP endpoint is configured or in non-local environment
+otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv("OTLP_GRPC_ENDPOINT")
+if otlp_endpoint or os.getenv("ENVIRONMENT", "development") != "development":
+    setup_tracing(
+        app=app,
+        service_name=APP_NAME,
+        service_version="1.0.0",
+        otlp_endpoint=otlp_endpoint,
+    )
+    logger.info(
+        "OpenTelemetry tracing enabled",
+        otlp_endpoint=otlp_endpoint or "localhost:4317",
+        service_name=APP_NAME,
+    )
+else:
+    logger.info("OpenTelemetry tracing disabled (no OTLP endpoint configured)")
 
 # Add CORS middleware for local development
 app.add_middleware(
@@ -60,13 +92,20 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
+# Add Prometheus metrics middleware (compatible with FastAPI Observability Dashboard)
+app.add_middleware(PrometheusMiddleware, app_name=APP_NAME)
+
+# Add request logging middleware
+app.add_middleware(RequestLoggingMiddleware, app_name=APP_NAME)
 
 # Include API router
 app.include_router(api_router, prefix=settings.api_v1_str)
 
-# Initialize and instrument the app with Prometheus metrics
-# This automatically adds metrics for requests, duration, responses, etc.
-Instrumentator().instrument(app).expose(app)
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics(request: Request) -> Response:
+    """Prometheus metrics endpoint."""
+    return await metrics_endpoint(request)
 
 
 @app.get("/")
@@ -86,9 +125,26 @@ async def health_check() -> dict[str, Any]:
     """Basic health check endpoint"""
     return {
         "status": "healthy",
-        "service": "ml-emotion-api",
+        "service": APP_NAME,
         "version": "1.0.0",
     }
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    """Application startup event handler."""
+    logger.info(
+        "Application starting",
+        service=APP_NAME,
+        version="1.0.0",
+        environment=os.getenv("ENVIRONMENT", "development"),
+    )
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    """Application shutdown event handler."""
+    logger.info("Application shutting down", service=APP_NAME)
 
 
 def main() -> None:

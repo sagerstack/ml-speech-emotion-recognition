@@ -72,10 +72,10 @@ def fetch_model_metadata():
 
 def display_model_metadata_card():
     """Display a card showing current model metadata"""
-    use_real_backend, backend_healthy, _ = get_backend_status()
+    use_real_backend, backend_healthy, force_mock = get_backend_status()
 
-    if not use_real_backend:
-        # Show mock mode indicator with purple border
+    # If mock mode is explicitly enabled, show mock indicator
+    if force_mock:
         st.markdown("""
         <div style="background: #f3f4f6; border: 2px solid #9333ea; padding: 14px 18px;
                     border-radius: 8px; color: #374151; font-size: 13px;">
@@ -89,6 +89,22 @@ def display_model_metadata_card():
         """, unsafe_allow_html=True)
         return
 
+    # If backend is unavailable and mock is not forced, show Model Offline
+    if not backend_healthy:
+        st.markdown("""
+        <div style="background: #f3f4f6; border: 2px solid #ef4444; padding: 14px 18px;
+                    border-radius: 8px; color: #374151; font-size: 13px;">
+            <div style="font-weight: 600; margin-bottom: 6px; color: #dc2626;">
+                ⚠️ Model Offline
+            </div>
+            <div style="font-size: 12px; color: #6b7280;">
+                • Backend is unavailable. Please check backend connection.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        return
+
+    # Try to fetch metadata from backend
     metadata = fetch_model_metadata()
 
     if metadata:
@@ -118,7 +134,7 @@ def display_model_metadata_card():
         </div>
         """, unsafe_allow_html=True)
     else:
-        # Backend is selected but unavailable - show red border
+        # Backend is healthy but can't fetch metadata - show warning
         st.markdown("""
         <div style="background: #f3f4f6; border: 2px solid #ef4444; padding: 14px 18px;
                     border-radius: 8px; color: #374151; font-size: 13px;">

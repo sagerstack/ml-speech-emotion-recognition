@@ -1,5 +1,5 @@
 # Multi-stage build for Python backend
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -26,11 +26,11 @@ COPY backend/pyproject.toml backend/poetry.lock ./
 # Configure Poetry
 RUN poetry config virtualenvs.create false
 
-# Install dependencies
-RUN poetry install --no-dev --no-interaction --no-ansi
+# Install dependencies (without dev dependencies)
+RUN poetry install --without dev --no-interaction --no-ansi
 
 # Production stage
-FROM python:3.11-slim as production
+FROM python:3.11-slim AS production
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
