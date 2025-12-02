@@ -14,14 +14,13 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 from unittest.mock import MagicMock, Mock
 
 import boto3
 import librosa
 import numpy as np
 import pytest
-import pytest_asyncio
 import soundfile as sf
 from fastapi.testclient import TestClient
 from moto import mock_aws
@@ -30,6 +29,10 @@ from moto import mock_aws
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
+
+# Minimum environment defaults required before importing the application
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-jwt")
+os.environ.setdefault("AWS_REGION", "us-east-1")
 
 from app.main import app
 from app.services.audio_service import AudioProcessor, AudioFeatures, AudioMetadata
@@ -353,9 +356,9 @@ def mock_aws_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # Async fixtures
-@pytest_asyncio.fixture
-async def async_test_client() -> AsyncGenerator[TestClient, None]:
-    """Create async test client."""
+@pytest.fixture
+def async_test_client() -> Generator[TestClient, None, None]:
+    """Create test client for async-style tests."""
     with TestClient(app) as client:
         yield client
 
