@@ -21,7 +21,7 @@ spec:
         environment: local
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9090"
+        prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
       containers:
@@ -31,15 +31,15 @@ spec:
         ports:
         - containerPort: 8000
           name: http
-        - containerPort: 9090
-          name: metrics
         env:
         - name: DEBUG
-          value: "true"
+          value: "false"
         - name: HOST
           value: "0.0.0.0"
         - name: PORT
           value: "8000"
+        - name: ENVIRONMENT
+          value: "kubernetes"
         - name: AWS_REGION
           value: "us-east-1"
         - name: SAGEMAKER_ENDPOINT_NAME
@@ -55,30 +55,37 @@ spec:
           value: "30"
         - name: PROMETHEUS_ENABLED
           value: "true"
-        - name: METRICS_PORT
-          value: "9090"
+        # OpenTelemetry Configuration for distributed tracing
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "tempo.monitoring.svc.cluster.local:4317"
+        - name: OTLP_GRPC_ENDPOINT
+          value: "tempo.monitoring.svc.cluster.local:4317"
+        - name: OTEL_SERVICE_NAME
+          value: "ml-emotion-api"
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: "service.name=ml-emotion-api,service.version=1.0.0,deployment.environment=kubernetes"
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
             memory: "1Gi"
             cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
         livenessProbe:
           httpGet:
             path: /health
             port: 8000
           initialDelaySeconds: 30
           periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+          timeoutSeconds: 10
+          failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 5
-          periodSeconds: 5
-          timeoutSeconds: 3
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 10
           failureThreshold: 3
         securityContext:
           runAsNonRoot: true
@@ -112,10 +119,6 @@ spec:
   - name: http
     port: 8000
     targetPort: 8000
-    protocol: TCP
-  - name: metrics
-    port: 9090
-    targetPort: 9090
     protocol: TCP
   selector:
     app: ml-speech-emotion-recognition

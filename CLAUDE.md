@@ -192,3 +192,7 @@ The project appears to need:
 - always check streamlit official documentation for referencing HOW to implement a capability or feature in streamlit- https://docs.streamlit.io/develop/api-reference
 - after you launch the app, wait for 15 seconds to monitor for any errors in the logs
 - always sleep for 15 seconds after launching app. not 5
+- never create documentation files unless I ask you to do so
+- never create guides unless i ask you to do so
+- always deploy the local k8s stack using local-deploy.sh and include monitoring
+- always deploy the local k8s stack using local-deploy.sh and include monitoring
