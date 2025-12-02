@@ -23,7 +23,7 @@ spec:
         version: v1
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9090"
+        prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: backend-service-account
@@ -102,6 +102,15 @@ spec:
             configMapKeyRef:
               name: app-config
               key: LOG_LEVEL
+        # OpenTelemetry Configuration for distributed tracing
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "tempo.monitoring.svc.cluster.local:4317"
+        - name: OTLP_GRPC_ENDPOINT
+          value: "tempo.monitoring.svc.cluster.local:4317"
+        - name: OTEL_SERVICE_NAME
+          value: "ml-emotion-api"
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: "service.name=ml-emotion-api,service.version=1.0.0,deployment.environment=production"
         resources:
           requests:
             memory: "1Gi"
