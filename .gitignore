@@ -217,11 +217,9 @@ data/AudioWAV/
 *.ogg
 dataset/
 datasets/
-models/
-!backend/models/
-!backend/models/**/*
+
+# Ignore all ML model files (pkl, joblib, h5, pth, pt) but NOT the model/models directories
 *.pkl
-!backend/models/**/*.pkl
 *.joblib
 *.h5
 *.pth
