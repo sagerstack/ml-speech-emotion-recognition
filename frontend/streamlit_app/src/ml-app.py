@@ -28,6 +28,7 @@ st.set_page_config(
 BASE_DIR = Path(__file__).resolve().parent
 HISTORY_PAGE = BASE_DIR / "pages" / "1_History.py"
 METRICS_PAGE = BASE_DIR / "pages" / "2_Metrics.py"
+MONITORING_PAGE = BASE_DIR / "pages" / "3_Monitoring.py"
 
 # Configuration
 ENABLE_MOCK_MODE = os.getenv("ENABLE_MOCK_MODE", "false").lower() == "true"
@@ -848,6 +849,11 @@ if __name__ == "__main__":
                 str(METRICS_PAGE),
                 title="Metrics",
                 icon="📊",
+            ),
+            st.Page(
+                str(MONITORING_PAGE),
+                title="Monitoring",
+                icon="🔍",
             ),
         ],
         position="top",

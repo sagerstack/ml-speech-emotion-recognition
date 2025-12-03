@@ -1,0 +1,15 @@
+{
+  "id": "019ae02b-3156-74d5-a62a-7597e8aed319",
+  "name": "speech_emotion_recognition",
+  "description": "ML Speech Emotion Recognition Model Monitoring",
+  "dashboard": {
+    "name": "speech_emotion_recognition",
+    "panels": [],
+    "tabs": [],
+    "tab_id_to_panel_ids": {}
+  },
+  "team_id": null,
+  "date_from": null,
+  "date_to": null,
+  "created_at": "2025-12-03T01:45:18.422602"
+}

@@ -33,7 +33,7 @@ echo -e "  Namespace:   ${GREEN}${K8S_NAMESPACE}${NC}"
 echo ""
 
 # Step 1: Check if cluster exists and is accessible
-echo -e "${YELLOW}[Step 1/5]${NC} Checking EKS cluster accessibility..."
+echo -e "${YELLOW}[Step 1/6]${NC} Checking EKS cluster accessibility..."
 
 if ! aws eks describe-cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --profile "$AWS_PROFILE" &>/dev/null; then
     echo -e "${YELLOW}⚠️  EKS cluster not found or not accessible${NC}"
@@ -52,7 +52,7 @@ fi
 # Step 2: Delete Kubernetes resources if cluster is accessible
 if [ "$SKIP_K8S_CLEANUP" = false ]; then
     echo ""
-    echo -e "${YELLOW}[Step 2/5]${NC} Deleting Kubernetes resources..."
+    echo -e "${YELLOW}[Step 2/6]${NC} Deleting Kubernetes resources..."
 
     # Check if app namespace exists
     if kubectl get namespace "$K8S_NAMESPACE" &>/dev/null; then
@@ -89,13 +89,13 @@ if [ "$SKIP_K8S_CLEANUP" = false ]; then
     fi
 else
     echo ""
-    echo -e "${YELLOW}[Step 2/5]${NC} Skipping Kubernetes cleanup (cluster not accessible)"
+    echo -e "${YELLOW}[Step 2/6]${NC} Skipping Kubernetes cleanup (cluster not accessible)"
 fi
 
 # Step 3: Wait for AWS Load Balancer Controller to clean up resources
 if [ "$SKIP_K8S_CLEANUP" = false ]; then
     echo ""
-    echo -e "${YELLOW}[Step 3/5]${NC} Waiting for AWS Load Balancer Controller to clean up AWS resources..."
+    echo -e "${YELLOW}[Step 3/6]${NC} Waiting for AWS Load Balancer Controller to clean up AWS resources..."
     echo -e "${YELLOW}   This typically takes 30-60 seconds...${NC}"
 
     for i in {60..1}; do
@@ -106,12 +106,12 @@ if [ "$SKIP_K8S_CLEANUP" = false ]; then
     echo -e "${GREEN}✓${NC} Wait period complete"
 else
     echo ""
-    echo -e "${YELLOW}[Step 3/5]${NC} Skipping wait period (no Kubernetes cleanup performed)"
+    echo -e "${YELLOW}[Step 3/6]${NC} Skipping wait period (no Kubernetes cleanup performed)"
 fi
 
 # Step 4: Manual cleanup of any orphaned AWS resources
 echo ""
-echo -e "${YELLOW}[Step 4/5]${NC} Checking for orphaned AWS resources..."
+echo -e "${YELLOW}[Step 4/6]${NC} Checking for orphaned AWS resources..."
 
 # Get VPC ID from Terraform state
 VPC_ID=$(cd "$(dirname "$0")" && terraform output -raw vpc_id 2>/dev/null || echo "")
@@ -155,12 +155,43 @@ else
     echo -e "${YELLOW}   Skipping orphaned resource check...${NC}"
 fi
 
-# Step 5: Run Terraform destroy
+# Step 5: Refresh Terraform state to sync with AWS reality
 echo ""
-echo -e "${YELLOW}[Step 5/5]${NC} Running Terraform destroy..."
+echo -e "${YELLOW}[Step 5/6]${NC} Refreshing Terraform state from AWS..."
 echo ""
 
 cd "$(dirname "$0")"
+
+echo -e "${YELLOW}   Syncing local state with actual AWS resources...${NC}"
+if terraform refresh -lock=true; then
+    echo -e "${GREEN}✓${NC} Terraform state refreshed successfully"
+else
+    echo -e "${RED}✗${NC} Failed to refresh Terraform state"
+    echo -e "${YELLOW}   Continuing anyway (state might already be empty)...${NC}"
+fi
+
+echo ""
+
+# Step 6: Run Terraform destroy
+echo -e "${YELLOW}[Step 6/6]${NC} Running Terraform destroy..."
+echo ""
+
+# First, check what will be destroyed
+echo -e "${YELLOW}   Checking what resources exist...${NC}"
+RESOURCE_COUNT=$(terraform state list 2>/dev/null | wc -l | tr -d ' ')
+
+if [ "$RESOURCE_COUNT" -eq "0" ]; then
+    echo -e "${GREEN}✓${NC} No resources found in Terraform state"
+    echo -e "${GREEN}   All infrastructure has already been destroyed!${NC}"
+    echo ""
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║  ✓ No resources to destroy - infrastructure is clean!     ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
+    exit 0
+fi
+
+echo -e "${YELLOW}   Found ${RESOURCE_COUNT} resources to destroy${NC}"
+echo ""
 
 # Confirmation prompt
 read -p "$(echo -e "${RED}⚠️  This will destroy all infrastructure. Are you sure? (yes/no): ${NC}")" confirmation
@@ -171,7 +202,13 @@ if [ "$confirmation" != "yes" ]; then
 fi
 
 echo -e "${YELLOW}   Running terraform destroy with profile: ${AWS_PROFILE}${NC}"
-terraform destroy -auto-approve
+if terraform destroy -auto-approve; then
+    echo -e "${GREEN}✓${NC} Terraform destroy completed successfully"
+else
+    echo -e "${RED}✗${NC} Terraform destroy encountered errors"
+    echo -e "${YELLOW}   Check the output above for details${NC}"
+    exit 1
+fi
 
 echo ""
 echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
