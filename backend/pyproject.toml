@@ -24,7 +24,6 @@ sagemaker = "^2.232.0"
 # Authentication and security
 python-jose = {extras = ["cryptography"], version = "^3.3.0"}
 passlib = {extras = ["bcrypt"], version = "^1.7.4"}
-python-multipart = "^0.0.12"
 
 # Data validation and serialization
 pydantic = "^2.10.0"
@@ -33,16 +32,24 @@ pydantic-settings = "^2.6.0"
 # Monitoring and logging
 prometheus-client = "^0.21.0"
 structlog = "^24.4.0"
+evidently = ">=0.4.0,<0.5.0"
+pandas = "^2.2.3"
 
 # HTTP client for URL-based predictions
 httpx = "^0.28.0"
 
-# Development and testing dependencies
-prometheus-fastapi-instrumentator = "^7.1.0"
+# OpenTelemetry for distributed tracing
+opentelemetry-api = "^1.27.0"
+opentelemetry-sdk = "^1.27.0"
+opentelemetry-exporter-otlp-proto-grpc = "^1.27.0"
+opentelemetry-instrumentation-fastapi = "^0.48b0"
+opentelemetry-instrumentation-logging = "^0.48b0"
+opentelemetry-instrumentation-httpx = "^0.48b0"
+litestar = "^2.18.0"
+python-multipart = "^0.0.20"
 [tool.poetry.group.dev.dependencies]
 # Testing framework
 pytest = "^8.3.0"
-pytest-asyncio = "^0.24.0"
 pytest-cov = "^6.0.0"
 pytest-mock = "^3.14.0"
 pytest-xdist = "^3.6.0"

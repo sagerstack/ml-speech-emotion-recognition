@@ -2,7 +2,7 @@
 Unit tests for logging utilities.
 
 This module tests the structured logging configuration, logger creation,
-and logging helper functions.
+logging helper functions, and trace context correlation.
 """
 
 import json
@@ -10,17 +10,23 @@ import logging
 import os
 import sys
 from io import StringIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
 import structlog
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from app.utils.config import Settings
 from app.utils.logging import (
     setup_logging,
     get_logger,
     log_request_info,
-    log_response_info
+    log_response_info,
+    log_error,
+    add_trace_context,
+    add_caller_info,
+    RequestLoggingMiddleware,
 )
 
 
@@ -564,3 +570,350 @@ class TestLoggingEdgeCases:
             except (ValueError, TypeError):
                 # Some serializers might not handle these values
                 pass
+
+
+class TestAddTraceContext:
+    """Test cases for add_trace_context processor."""
+
+    def test_add_trace_context_with_valid_span(self) -> None:
+        """Test adding trace context when a valid span exists."""
+        mock_span = MagicMock()
+        mock_span_context = MagicMock()
+        mock_span_context.trace_id = 0x0102030405060708090A0B0C0D0E0F10
+        mock_span_context.span_id = 0x0102030405060708
+        mock_span_context.is_valid = True
+        mock_span.get_span_context.return_value = mock_span_context
+
+        with patch("app.utils.logging.trace.get_current_span", return_value=mock_span):
+            event_dict = {"event": "test message"}
+            result = add_trace_context(None, "info", event_dict)
+
+            assert "trace_id" in result
+            assert "span_id" in result
+            assert len(result["trace_id"]) == 32  # 128-bit as hex
+            assert len(result["span_id"]) == 16  # 64-bit as hex
+
+    def test_add_trace_context_without_span(self) -> None:
+        """Test adding trace context when no span exists."""
+        mock_span = MagicMock()
+        mock_span_context = MagicMock()
+        mock_span_context.is_valid = False
+        mock_span.get_span_context.return_value = mock_span_context
+
+        with patch("app.utils.logging.trace.get_current_span", return_value=mock_span):
+            event_dict = {"event": "test message"}
+            result = add_trace_context(None, "info", event_dict)
+
+            assert "trace_id" not in result
+            assert "span_id" not in result
+
+    def test_add_trace_context_preserves_existing_data(self) -> None:
+        """Test that trace context processor preserves existing event data."""
+        mock_span = MagicMock()
+        mock_span_context = MagicMock()
+        mock_span_context.trace_id = 0x0102030405060708090A0B0C0D0E0F10
+        mock_span_context.span_id = 0x0102030405060708
+        mock_span_context.is_valid = True
+        mock_span.get_span_context.return_value = mock_span_context
+
+        with patch("app.utils.logging.trace.get_current_span", return_value=mock_span):
+            event_dict = {
+                "event": "test message",
+                "custom_field": "custom_value",
+                "number": 42,
+            }
+            result = add_trace_context(None, "info", event_dict)
+
+            assert result["event"] == "test message"
+            assert result["custom_field"] == "custom_value"
+            assert result["number"] == 42
+
+
+class TestAddCallerInfo:
+    """Test cases for add_caller_info processor."""
+
+    def test_add_caller_info_adds_module(self) -> None:
+        """Test that caller info adds module information."""
+        event_dict = {"event": "test message"}
+        result = add_caller_info(None, "info", event_dict)
+
+        # The caller should be this test module
+        assert "caller_module" in result or "caller_function" in result
+
+    def test_add_caller_info_preserves_existing_data(self) -> None:
+        """Test that caller info processor preserves existing event data."""
+        event_dict = {
+            "event": "test message",
+            "existing_field": "existing_value",
+        }
+        result = add_caller_info(None, "info", event_dict)
+
+        assert result["event"] == "test message"
+        assert result["existing_field"] == "existing_value"
+
+
+class TestLogError:
+    """Test cases for log_error function."""
+
+    def test_log_error_basic(self) -> None:
+        """Test basic error logging."""
+        logger = get_logger("error_test")
+        error = ValueError("Test error message")
+
+        # Should not raise any exceptions
+        log_error(logger, error)
+
+    def test_log_error_with_context(self) -> None:
+        """Test error logging with additional context."""
+        logger = get_logger("error_context_test")
+        error = ValueError("Test error message")
+        context = {
+            "user_id": "user123",
+            "request_path": "/api/v1/predict",
+            "duration_ms": 150.5,
+        }
+
+        log_error(logger, error, context)
+
+    def test_log_error_with_different_exception_types(self) -> None:
+        """Test error logging with different exception types."""
+        logger = get_logger("exception_types_test")
+
+        exceptions = [
+            ValueError("Value error"),
+            TypeError("Type error"),
+            KeyError("missing_key"),
+            RuntimeError("Runtime error"),
+            IOError("IO error"),
+        ]
+
+        for exc in exceptions:
+            log_error(logger, exc)
+
+    def test_log_error_with_nested_exception(self) -> None:
+        """Test error logging with nested exception context."""
+        logger = get_logger("nested_exception_test")
+
+        try:
+            try:
+                raise ValueError("Original error")
+            except ValueError:
+                raise RuntimeError("Wrapped error") from ValueError("Original")
+        except RuntimeError as e:
+            log_error(logger, e)
+
+
+class TestRequestLoggingMiddleware:
+    """Test cases for RequestLoggingMiddleware."""
+
+    def test_middleware_initialization(self) -> None:
+        """Test middleware initialization."""
+        app = FastAPI()
+        middleware = RequestLoggingMiddleware(app, app_name="test-app")
+
+        assert middleware.app_name == "test-app"
+
+    def test_middleware_default_app_name(self) -> None:
+        """Test middleware default app name."""
+        app = FastAPI()
+        middleware = RequestLoggingMiddleware(app)
+
+        assert middleware.app_name == "fastapi-app"
+
+    def test_middleware_get_path_template(self) -> None:
+        """Test get_path_template method."""
+        app = FastAPI()
+
+        @app.get("/api/v1/users/{user_id}")
+        async def get_user(user_id: str) -> dict:
+            return {"user_id": user_id}
+
+        middleware = RequestLoggingMiddleware(app, app_name="test")
+
+        with TestClient(app) as client:
+            response = client.get("/api/v1/users/123")
+
+        assert response.status_code == 200
+
+    def test_middleware_get_client_ip(self) -> None:
+        """Test get_client_ip static method."""
+        mock_request = MagicMock()
+        mock_request.headers = {"x-forwarded-for": "192.168.1.1, 10.0.0.1"}
+        mock_request.client.host = "127.0.0.1"
+
+        ip = RequestLoggingMiddleware.get_client_ip(mock_request)
+        assert ip == "192.168.1.1"
+
+    def test_middleware_get_client_ip_no_forward(self) -> None:
+        """Test get_client_ip when no X-Forwarded-For header."""
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_request.client.host = "127.0.0.1"
+
+        ip = RequestLoggingMiddleware.get_client_ip(mock_request)
+        assert ip == "127.0.0.1"
+
+    def test_middleware_generate_request_id(self) -> None:
+        """Test generate_request_id method."""
+        request_id = RequestLoggingMiddleware.generate_request_id()
+
+        # Should be a valid UUID string
+        assert request_id is not None
+        assert len(request_id) == 36  # UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+    def test_middleware_should_skip_logging_for_health(self) -> None:
+        """Test that health endpoint is skipped for logging."""
+        app = FastAPI()
+        middleware = RequestLoggingMiddleware(app, app_name="test")
+
+        assert middleware._should_skip_logging("/health") is True
+        assert middleware._should_skip_logging("/metrics") is True
+        assert middleware._should_skip_logging("/ready") is True
+        assert middleware._should_skip_logging("/live") is True
+        assert middleware._should_skip_logging("/api/v1/predict") is False
+
+    def test_middleware_logs_request_response(self) -> None:
+        """Test that middleware logs request and response."""
+        app = FastAPI()
+        app.add_middleware(RequestLoggingMiddleware, app_name="test-app")
+
+        @app.get("/test")
+        async def test_endpoint() -> dict:
+            return {"message": "test"}
+
+        with TestClient(app) as client:
+            response = client.get("/test")
+
+        assert response.status_code == 200
+        # Request ID should be in response headers
+        assert "x-request-id" in response.headers
+
+    def test_middleware_adds_request_id_header(self) -> None:
+        """Test that middleware adds x-request-id to response."""
+        app = FastAPI()
+        app.add_middleware(RequestLoggingMiddleware, app_name="test-app")
+
+        @app.get("/test")
+        async def test_endpoint() -> dict:
+            return {"message": "test"}
+
+        with TestClient(app) as client:
+            response = client.get("/test")
+
+        assert "x-request-id" in response.headers
+        request_id = response.headers["x-request-id"]
+        assert len(request_id) == 36  # UUID format
+
+    def test_middleware_uses_provided_request_id(self) -> None:
+        """Test that middleware uses provided x-request-id header."""
+        app = FastAPI()
+        app.add_middleware(RequestLoggingMiddleware, app_name="test-app")
+
+        @app.get("/test")
+        async def test_endpoint() -> dict:
+            return {"message": "test"}
+
+        custom_request_id = "custom-request-id-12345"
+
+        with TestClient(app) as client:
+            response = client.get(
+                "/test",
+                headers={"x-request-id": custom_request_id}
+            )
+
+        assert response.headers["x-request-id"] == custom_request_id
+
+    def test_middleware_skips_health_endpoint(self) -> None:
+        """Test that middleware skips logging for health endpoint."""
+        app = FastAPI()
+        app.add_middleware(RequestLoggingMiddleware, app_name="test-app")
+
+        @app.get("/health")
+        async def health_endpoint() -> dict:
+            return {"status": "healthy"}
+
+        with TestClient(app) as client:
+            response = client.get("/health")
+
+        assert response.status_code == 200
+        # Health endpoint should not have x-request-id added
+        # (since it's skipped)
+
+    def test_middleware_handles_exceptions(self) -> None:
+        """Test that middleware handles exceptions gracefully."""
+        app = FastAPI()
+        app.add_middleware(RequestLoggingMiddleware, app_name="test-app")
+
+        @app.get("/error")
+        async def error_endpoint() -> dict:
+            raise ValueError("Test error")
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/error")
+
+        assert response.status_code == 500
+
+
+class TestRequestLoggingMiddlewareIntegration:
+    """Integration tests for RequestLoggingMiddleware."""
+
+    def test_full_request_response_cycle(self) -> None:
+        """Test complete request/response logging cycle."""
+        app = FastAPI()
+        app.add_middleware(RequestLoggingMiddleware, app_name="integration-test")
+
+        @app.post("/api/v1/predict")
+        async def predict_endpoint() -> dict:
+            return {"emotion": "happy", "confidence": 0.95}
+
+        with TestClient(app) as client:
+            response = client.post("/api/v1/predict")
+
+        assert response.status_code == 200
+        assert "x-request-id" in response.headers
+
+    def test_multiple_requests(self) -> None:
+        """Test multiple requests have unique request IDs."""
+        app = FastAPI()
+        app.add_middleware(RequestLoggingMiddleware, app_name="multi-test")
+
+        @app.get("/test")
+        async def test_endpoint() -> dict:
+            return {"message": "test"}
+
+        request_ids = []
+        with TestClient(app) as client:
+            for _ in range(5):
+                response = client.get("/test")
+                request_ids.append(response.headers["x-request-id"])
+
+        # All request IDs should be unique
+        assert len(set(request_ids)) == 5
+
+    def test_different_status_codes(self) -> None:
+        """Test logging for different HTTP status codes."""
+        app = FastAPI()
+        app.add_middleware(RequestLoggingMiddleware, app_name="status-test")
+
+        from fastapi import Response
+
+        @app.get("/ok")
+        async def ok_endpoint() -> dict:
+            return {"status": "ok"}
+
+        @app.get("/created")
+        async def created_endpoint() -> Response:
+            return Response(status_code=201)
+
+        @app.get("/not-found")
+        async def not_found_endpoint() -> Response:
+            return Response(status_code=404)
+
+        with TestClient(app) as client:
+            response1 = client.get("/ok")
+            response2 = client.get("/created")
+            response3 = client.get("/not-found")
+
+        assert response1.status_code == 200
+        assert response2.status_code == 201
+        assert response3.status_code == 404

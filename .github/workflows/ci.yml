@@ -18,6 +18,7 @@ jobs:
         working-directory: backend
     env:
       SECRET_KEY: "ci-fake-secret-key"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
 
     steps:
       - name: Checkout
@@ -35,6 +36,9 @@ jobs:
         run: |
           poetry config virtualenvs.in-project true
           poetry config virtualenvs.create true
+
+      - name: Regenerate lockfile
+        run: poetry lock --no-interaction --no-ansi
 
       - name: Cache virtualenv
         uses: actions/cache@v4

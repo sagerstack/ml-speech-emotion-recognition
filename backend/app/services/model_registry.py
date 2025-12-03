@@ -24,6 +24,7 @@ import numpy as np
 
 from app.utils.config import get_settings
 from app.interfaces import validate_feature_extractor, validate_feature_output
+from app.models import UltraEnsembleModel  # Required for unpickling v3 model
 
 
 @dataclass
@@ -35,6 +36,7 @@ class ModelVersion:
     feature_extractor: Callable[[bytes, str], np.ndarray]
     metadata: Dict
     feature_dimension: int
+    scaler: Optional[any] = None  # StandardScaler for v3 compatibility
 
 
 class ModelRegistry:
@@ -143,9 +145,8 @@ class ModelRegistry:
         with open(metadata_file, 'r') as f:
             metadata = json.load(f)
 
-        # Load model
-        with open(model_file, 'rb') as f:
-            model = pickle.load(f)
+        # Load model (now returns model and scaler)
+        model, scaler = self._load_model_pickle(model_file)
 
         # Dynamically import feature extractor
         extractor_module = self._import_extractor(extractor_file, version)
@@ -163,11 +164,58 @@ class ModelRegistry:
             model=model,
             feature_extractor=extractor_module.extract_features,
             metadata=metadata,
-            feature_dimension=metadata.get('feature_dimension', 0)
+            feature_dimension=metadata.get('feature_dimension', 0),
+            scaler=scaler  # Add scaler to ModelVersion
         )
 
         # Register
         self.versions[version] = model_version
+
+    def _load_model_pickle(self, model_file: Path):
+        """
+        Load a pickled model with custom unpickler that handles __main__ module references.
+
+        Some models (like v3) were trained in notebooks and have classes saved under
+        the __main__ module. This method remaps those references to the correct module.
+
+        Args:
+            model_file: Path to the .pkl file
+
+        Returns:
+            tuple: (model, scaler) where scaler is None if not present in the bundle
+
+        Raises:
+            Exception: If model cannot be loaded
+        """
+        import sys
+        import types
+
+        # Create a custom unpickler that remaps __main__ to our modules
+        class CustomUnpickler(pickle.Unpickler):
+            def find_class(self, module, name):
+                # Remap __main__.UltraEnsembleModel to app.models.UltraEnsembleModel
+                if module == '__main__' and name == 'UltraEnsembleModel':
+                    from app.models import UltraEnsembleModel
+                    return UltraEnsembleModel
+                return super().find_class(module, name)
+
+        with open(model_file, 'rb') as f:
+            model_obj = CustomUnpickler(f).load()
+
+            # Some models (like v3) are saved as dictionaries with the actual model inside
+            # Extract the model from the bundle if it's a dict
+            if isinstance(model_obj, dict) and 'model' in model_obj:
+                model = model_obj['model']
+                scaler = model_obj.get('scaler', None)  # Extract scaler if present
+
+                # Add classes_ attribute if available in the bundle
+                # This is needed for scikit-learn compatibility
+                if 'class_labels' in model_obj and not hasattr(model, 'classes_'):
+                    model.classes_ = model_obj['class_labels']
+
+                return model, scaler  # Return both model and scaler
+
+            return model_obj, None  # Return model and None for scaler
 
     def _import_extractor(self, extractor_path: Path, version: str):
         """
@@ -230,7 +278,8 @@ class ModelRegistry:
         self,
         version: str,
         audio_bytes: bytes,
-        filename: str
+        filename: str,
+        include_features: bool = False,
     ) -> Dict:
         """
         Run inference using a specific model version.
@@ -271,6 +320,10 @@ class ModelRegistry:
                 f"got {features.shape}"
             )
 
+        # Apply scaler if present (required for v3)
+        if model_version.scaler is not None:
+            features = model_version.scaler.transform(features.reshape(1, -1)).flatten()
+
         # Run prediction
         try:
             # Reshape for sklearn (expects 2D array)
@@ -290,17 +343,45 @@ class ModelRegistry:
                 all_probs = {prediction: 1.0}
                 confidence = 1.0
 
-            return {
+            result = {
                 "emotion": prediction,
                 "confidence": float(confidence),
                 "all_probabilities": all_probs,
                 "model_version": version,
                 "model_type": model_version.metadata.get("model_type", "unknown"),
-                "feature_dimension": model_version.feature_dimension
+                "feature_dimension": model_version.feature_dimension,
             }
+
+            if include_features:
+                feature_names = self._feature_names(model_version)
+                result["features"] = dict(zip(feature_names, features.tolist()))
+
+            return result
 
         except Exception as e:
             raise ValueError(f"Prediction failed: {str(e)}")
+
+    def _feature_names(self, model_version: ModelVersion) -> list[str]:
+        if model_version.version == "1" and model_version.feature_dimension == 162:
+            return [
+                "zero_crossing_rate",
+                *[f"chroma_{i}" for i in range(12)],
+                *[f"mfcc_{i}" for i in range(20)],
+                "rms_energy",
+                *[f"mel_{i}" for i in range(128)],
+            ]
+
+        if model_version.version == "2" and model_version.feature_dimension == 78:
+            return [
+                *[f"mfcc_mean_{i}" for i in range(13)],
+                *[f"mfcc_std_{i}" for i in range(13)],
+                *[f"delta_mean_{i}" for i in range(13)],
+                *[f"delta_std_{i}" for i in range(13)],
+                *[f"delta2_mean_{i}" for i in range(13)],
+                *[f"delta2_std_{i}" for i in range(13)],
+            ]
+
+        return [f"feature_{i}" for i in range(model_version.feature_dimension)]
 
     def predict_all(self, audio_bytes: bytes, filename: str) -> List[Dict]:
         """

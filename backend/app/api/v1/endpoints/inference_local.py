@@ -14,13 +14,16 @@ Endpoints:
 """
 
 import time
+from datetime import datetime
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, status, Path as PathParam
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Path as PathParam, UploadFile, HTTPException, status
 from prometheus_client import Counter, Histogram
 
 from app.services.model_registry import get_registry, ModelRegistry
 from app.services.audio_service import audio_processor, AudioProcessingError
+from app.services.evidently_monitoring import get_monitoring_service
+from app.services.prediction_buffer import PredictionRecord
 from app.utils.logging import get_logger
 from app.utils.file_validation import validate_audio_file
 
@@ -49,6 +52,7 @@ COMPARISON_REQUESTS = Counter(
 
 @router.post("/infer/local/latest")
 async def infer_latest(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
 ) -> Dict[str, Any]:
     """
@@ -108,7 +112,8 @@ async def infer_latest(
         result = registry.predict(
             version=latest_model.version,
             audio_bytes=audio_bytes,
-            filename=file.filename
+            filename=file.filename,
+            include_features=True,
         )
 
         processing_time = (time.time() - start_time) * 1000  # Convert to ms
@@ -119,6 +124,12 @@ async def infer_latest(
             success=True
         ).inc()
         LOCAL_INFERENCE_DURATION.labels(version=latest_model.version).observe(time.time() - start_time)
+
+        _log_prediction_for_monitoring(
+            result=result,
+            filename=file.filename,
+            background_tasks=background_tasks,
+        )
 
         return {
             "version": result["model_version"],
@@ -161,6 +172,7 @@ async def infer_latest(
 
 @router.post("/infer/local/{version}")
 async def infer_version(
+    background_tasks: BackgroundTasks,
     version: str = PathParam(..., description="Model version number (e.g., 1, 2, 3)"),
     file: UploadFile = File(...),
 ) -> Dict[str, Any]:
@@ -211,7 +223,8 @@ async def infer_version(
         result = registry.predict(
             version=version,
             audio_bytes=audio_bytes,
-            filename=file.filename
+            filename=file.filename,
+            include_features=True,
         )
 
         processing_time = (time.time() - start_time) * 1000
@@ -219,6 +232,12 @@ async def infer_version(
         # Record metrics
         LOCAL_INFERENCE_REQUESTS.labels(version=version, success=True).inc()
         LOCAL_INFERENCE_DURATION.labels(version=version).observe(time.time() - start_time)
+
+        _log_prediction_for_monitoring(
+            result=result,
+            filename=file.filename,
+            background_tasks=background_tasks,
+        )
 
         return {
             "version": result["model_version"],
@@ -579,3 +598,29 @@ async def get_latest_model_info() -> Dict[str, Any]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get latest model info: {str(e)}"
         )
+
+
+def _log_prediction_for_monitoring(
+    result: Dict[str, Any], filename: str, background_tasks: BackgroundTasks | None
+) -> None:
+    """Send prediction details to the monitoring buffer and trigger reports."""
+
+    try:
+        monitoring_service = get_monitoring_service()
+        record = PredictionRecord(
+            timestamp=datetime.utcnow(),
+            model_version=str(result.get("model_version")),
+            predicted_emotion=str(result.get("emotion")),
+            confidence=float(result.get("confidence", 0.0)),
+            probabilities=result.get("all_probabilities", {}),
+            features=result.get("features", {}),
+            filename=filename,
+        )
+
+        buffer_length = monitoring_service.log_prediction(record)
+
+        if background_tasks and monitoring_service.should_generate_report(buffer_length):
+            background_tasks.add_task(monitoring_service.generate_report)
+
+    except Exception as exc:  # pragma: no cover - telemetry shouldn't break inference
+        logger.warning("Monitoring logging skipped", error=str(exc))

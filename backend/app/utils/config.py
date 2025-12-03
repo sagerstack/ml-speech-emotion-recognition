@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     # Monitoring Configuration
     prometheus_enabled: bool = True
     metrics_port: int = 9090
+    monitoring_reference_path: str | None = None
+    monitoring_reports_dir: str = "monitoring_reports"
+    monitoring_buffer_max_records: int = 500
+    monitoring_auto_report_threshold: int = 100
+    evidently_dashboard_url: str | None = None
 
     # CORS Configuration (for local development)
     cors_origins: list[str] = [
@@ -90,6 +95,13 @@ class Settings(BaseSettings):
     def validate_concurrent_requests(cls, v):
         if v <= 0:
             raise ValueError('Max concurrent requests must be positive')
+        return v
+
+    @field_validator('monitoring_buffer_max_records', 'monitoring_auto_report_threshold')
+    @classmethod
+    def validate_monitoring_thresholds(cls, v):
+        if v <= 0:
+            raise ValueError('Monitoring thresholds must be positive')
         return v
 
     @field_validator('secret_key')

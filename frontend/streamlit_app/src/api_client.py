@@ -343,6 +343,22 @@ class SpeechEmotionAPIClient:
             logger.error(f"Failed to parse local response: {str(e)}")
             raise ValueError(f"Invalid response format: {str(e)}")
 
+    def fetch_monitoring_summary(self) -> Dict[str, Any]:
+        """Retrieve monitoring summary from the backend."""
+
+        try:
+            response = self.session.get(
+                f"{self.base_url}/v1/monitoring/summary", timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+        except RequestException as exc:
+            logger.error(f"Monitoring summary request failed: {exc}")
+            raise
+        except Exception as exc:
+            logger.error(f"Unexpected monitoring error: {exc}")
+            raise RequestException("Unable to fetch monitoring summary")
+
     def _handle_error_response(self, response: requests.Response) -> None:
         """Handle error responses from the API"""
         try:

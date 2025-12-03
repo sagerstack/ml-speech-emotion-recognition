@@ -14,6 +14,7 @@ MONITORING_NAMESPACE="monitoring"
 # Parse command line arguments
 SKIP_PUSH=false
 DEPLOY_MONITORING=false
+CLEAN_DEPLOY=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -25,9 +26,13 @@ while [[ $# -gt 0 ]]; do
       DEPLOY_MONITORING=true
       shift
       ;;
+    --clean)
+      CLEAN_DEPLOY=true
+      shift
+      ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--skip-push] [--with-monitoring]"
+      echo "Usage: $0 [--skip-push] [--with-monitoring] [--clean]"
       exit 1
       ;;
   esac
@@ -46,7 +51,82 @@ echo "Streamlit Image:  ${STREAMLIT_IMAGE}"
 echo "Namespace:        ${NAMESPACE}"
 echo "Skip Push:        ${SKIP_PUSH}"
 echo "Deploy Monitoring: ${DEPLOY_MONITORING}"
+echo "Clean Deploy:     ${CLEAN_DEPLOY}"
 echo "=========================================="
+
+# Function to cleanup existing resources
+cleanup_resources() {
+  echo ""
+  echo "🧹 Cleanup: Removing existing resources..."
+
+  # Kill existing port forwards
+  echo "Stopping existing port forwards..."
+  pkill -f "kubectl port-forward.*${NAMESPACE}" 2>/dev/null || true
+  pkill -f "kubectl port-forward.*${MONITORING_NAMESPACE}" 2>/dev/null || true
+  sleep 2
+
+  # Check if namespaces exist and delete resources
+  if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
+    echo "Deleting resources in namespace: ${NAMESPACE}"
+    kubectl delete all --all -n "${NAMESPACE}" --timeout=60s 2>/dev/null || true
+    kubectl delete configmap --all -n "${NAMESPACE}" --timeout=30s 2>/dev/null || true
+    kubectl delete ingress --all -n "${NAMESPACE}" --timeout=30s 2>/dev/null || true
+    echo "Deleting namespace: ${NAMESPACE}"
+    kubectl delete namespace "${NAMESPACE}" --timeout=60s 2>/dev/null || true
+  else
+    echo "Namespace ${NAMESPACE} does not exist, skipping cleanup"
+  fi
+
+  if kubectl get namespace "${MONITORING_NAMESPACE}" &>/dev/null; then
+    echo "Deleting resources in namespace: ${MONITORING_NAMESPACE}"
+    kubectl delete all --all -n "${MONITORING_NAMESPACE}" --timeout=60s 2>/dev/null || true
+    kubectl delete configmap --all -n "${MONITORING_NAMESPACE}" --timeout=30s 2>/dev/null || true
+    kubectl delete pvc --all -n "${MONITORING_NAMESPACE}" --timeout=30s 2>/dev/null || true
+    echo "Deleting namespace: ${MONITORING_NAMESPACE}"
+    kubectl delete namespace "${MONITORING_NAMESPACE}" --timeout=60s 2>/dev/null || true
+  else
+    echo "Namespace ${MONITORING_NAMESPACE} does not exist, skipping cleanup"
+  fi
+
+  echo "Resource cleanup completed ✓"
+}
+
+# Function to stop and delete minikube
+reset_minikube() {
+  echo ""
+  echo "🔄 Resetting Minikube..."
+
+  if minikube status &>/dev/null; then
+    echo "Stopping minikube..."
+    minikube stop
+    echo "Minikube stopped ✓"
+  else
+    echo "Minikube is not running, skipping stop"
+  fi
+
+  echo "Deleting minikube cluster..."
+  minikube delete
+  echo "Minikube cluster deleted ✓"
+}
+
+# Perform cleanup if --clean flag is provided
+if [ "${CLEAN_DEPLOY}" = true ]; then
+  echo ""
+  echo "╔════════════════════════════════════════════════════════════╗"
+  echo "║         CLEAN DEPLOYMENT MODE ENABLED                      ║"
+  echo "║  This will delete all existing resources and minikube      ║"
+  echo "╚════════════════════════════════════════════════════════════╝"
+
+  # Cleanup existing resources
+  cleanup_resources
+
+  # Reset minikube
+  reset_minikube
+
+  echo ""
+  echo "✓ Cleanup completed. Starting fresh deployment..."
+  echo ""
+fi
 
 # Docker login (if not skipping push)
 if [ "${SKIP_PUSH}" = false ]; then
@@ -132,6 +212,14 @@ kubectl apply -f "${SCRIPT_DIR}/backend-deployment.yaml"
 kubectl apply -f "${SCRIPT_DIR}/streamlit-deployment.yaml"
 kubectl apply -f "${SCRIPT_DIR}/ingress.yaml"
 
+# Force pod restart to ensure new images are pulled
+# This is necessary because kubectl apply won't restart pods if only the image content changed
+# (even with imagePullPolicy: Always, k8s won't pull unless the pod is recreated)
+echo ""
+echo "Forcing pod restart to pull latest images..."
+kubectl rollout restart deployment/backend -n "${NAMESPACE}"
+kubectl rollout restart deployment/streamlit -n "${NAMESPACE}"
+
 # Deploy monitoring stack if requested
 if [ "${DEPLOY_MONITORING}" = true ]; then
   echo ""
@@ -142,6 +230,32 @@ if [ "${DEPLOY_MONITORING}" = true ]; then
     echo "Monitoring stack deployed to namespace: ${MONITORING_NAMESPACE}"
   else
     echo "Warning: monitoring-stack.yaml not found, skipping monitoring deployment"
+  fi
+
+  # Apply Grafana dashboards ConfigMap from static YAML file
+  DASHBOARD_CM_FILE="${SCRIPT_DIR}/grafana-dashboards-configmap.yaml"
+  if [ -f "${DASHBOARD_CM_FILE}" ]; then
+    echo "Applying Grafana dashboards ConfigMap..."
+    kubectl apply -f "${DASHBOARD_CM_FILE}"
+    echo "Dashboards ConfigMap applied successfully"
+  else
+    echo "Warning: grafana-dashboards-configmap.yaml not found"
+  fi
+
+  # Deploy kube-state-metrics
+  if [ -f "${SCRIPT_DIR}/kube-state-metrics.yaml" ]; then
+    kubectl apply -f "${SCRIPT_DIR}/kube-state-metrics.yaml"
+    echo "kube-state-metrics deployed"
+  else
+    echo "Warning: kube-state-metrics.yaml not found"
+  fi
+
+  # Deploy node-exporter
+  if [ -f "${SCRIPT_DIR}/node-exporter.yaml" ]; then
+    kubectl apply -f "${SCRIPT_DIR}/node-exporter.yaml"
+    echo "node-exporter deployed"
+  else
+    echo "Warning: node-exporter.yaml not found"
   fi
 fi
 
@@ -162,60 +276,187 @@ if [ "${DEPLOY_MONITORING}" = true ]; then
   fi
 fi
 
-# Fetch service URLs
+# Setup port forwarding
 echo ""
-echo "Step 9: Fetch Service URLs"
-echo "Fetching service URLs via minikube..."
-BACKEND_URL="$(minikube service backend -n "${NAMESPACE}" --url | head -n1)"
-STREAMLIT_URL="$(minikube service streamlit -n "${NAMESPACE}" --url | head -n1)"
+echo "Step 9: Setup Port Forwarding"
+echo "Setting up port forwarding for easy access..."
+
+# Kill any existing port forwards
+pkill -f "kubectl port-forward.*${NAMESPACE}" 2>/dev/null || true
+pkill -f "kubectl port-forward.*${MONITORING_NAMESPACE}" 2>/dev/null || true
+
+# Wait a moment for ports to be released
+sleep 2
+
+# Start port forwarding in background
+echo "Starting port forwards..."
+kubectl port-forward -n "${NAMESPACE}" svc/backend 8000:8000 >/dev/null 2>&1 &
+BACKEND_PF_PID=$!
+kubectl port-forward -n "${NAMESPACE}" svc/streamlit 8501:8501 >/dev/null 2>&1 &
+STREAMLIT_PF_PID=$!
+
+# Setup monitoring port forwards if deployed
+if [ "${DEPLOY_MONITORING}" = true ]; then
+  kubectl port-forward -n "${MONITORING_NAMESPACE}" svc/prometheus 9090:9090 >/dev/null 2>&1 &
+  PROMETHEUS_PF_PID=$!
+  kubectl port-forward -n "${MONITORING_NAMESPACE}" svc/grafana 3000:3000 >/dev/null 2>&1 &
+  GRAFANA_PF_PID=$!
+fi
+
+# Wait for port forwards to establish
+sleep 3
+
+# Test backend connectivity
+echo "Testing backend connectivity..."
+if curl -s -f http://localhost:8000/health >/dev/null 2>&1; then
+  echo "Backend is accessible ✓"
+else
+  echo "Warning: Backend health check failed. Port forward may still be establishing."
+fi
 
 # Display deployment summary
 cat <<EOF
 
-========================================
-Deployment Complete!
-========================================
-Backend Service:   ${BACKEND_URL}
-Streamlit Service: ${STREAMLIT_URL}
+╔══════════════════════════════════════════════════════════════╗
+║                   DEPLOYMENT COMPLETE! ✓                     ║
+╚══════════════════════════════════════════════════════════════╝
 
-Backend Health:    ${BACKEND_URL}/health
-Backend Metrics:   ${BACKEND_URL}/metrics
-Backend API Docs:  ${BACKEND_URL}/docs
+┌──────────────────────────────────────────────────────────────┐
+│  🌐 ACCESS YOUR SERVICES                                      │
+└──────────────────────────────────────────────────────────────┘
 
-Quick Access Commands:
-  kubectl get pods -n ${NAMESPACE}
-  kubectl logs -n ${NAMESPACE} deployment/backend --tail=50
-  kubectl logs -n ${NAMESPACE} deployment/streamlit --tail=50
+📱 STREAMLIT WEB APP (Main Interface)
+   👉 http://localhost:8501
 
-Port Forwarding (alternative to minikube service):
-  kubectl port-forward -n ${NAMESPACE} svc/backend 8000:8000
-  kubectl port-forward -n ${NAMESPACE} svc/streamlit 8501:8501
+   This is your main application interface for:
+   - Uploading audio files
+   - Running emotion analysis
+   - Viewing results and visualizations
+
+🔧 BACKEND API
+   👉 http://localhost:8000
+
+   Key Endpoints:
+   • Health Check:  http://localhost:8000/health
+   • API Docs:      http://localhost:8000/docs
+   • Metrics:       http://localhost:8000/metrics
+   • Model Info:    http://localhost:8000/v1/models/local/latest
 
 EOF
 
 if [ "${DEPLOY_MONITORING}" = true ]; then
   cat <<EOF
-Monitoring Stack:
-  Prometheus: kubectl port-forward -n ${MONITORING_NAMESPACE} svc/prometheus 9090:9090
-  Grafana:    kubectl port-forward -n ${MONITORING_NAMESPACE} svc/grafana 3000:3000
+📊 MONITORING STACK
 
-  Access at:
-    - Prometheus: http://localhost:9090
-    - Grafana:    http://localhost:3000 (admin/admin)
+   📈 Prometheus (Metrics Collection)
+   👉 http://localhost:9090
+
+   📉 Grafana (Dashboards & Visualization)
+   👉 http://localhost:3000
+
+   📝 Credentials: admin / admin
+
+   Note: Loki is running internally for log aggregation
+         Access logs via Grafana's Explore view
 
 EOF
 fi
 
 cat <<EOF
-Ingress Configuration:
-  - Ensure ingress addon is enabled: minikube addons enable ingress
-  - Add to /etc/hosts:
-      $(minikube ip) ml-emotion.local
-      $(minikube ip) streamlit.ml-emotion.local
+┌──────────────────────────────────────────────────────────────┐
+│  🛠️  MANAGEMENT                                               │
+└──────────────────────────────────────────────────────────────┘
 
-  Then access via:
-    - http://ml-emotion.local/api/health
-    - http://streamlit.ml-emotion.local/
+Port Forward PIDs:
+  • Backend:   ${BACKEND_PF_PID}
+  • Streamlit: ${STREAMLIT_PF_PID}
+EOF
 
-========================================
+if [ "${DEPLOY_MONITORING}" = true ]; then
+  cat <<EOF
+  • Prometheus: ${PROMETHEUS_PF_PID}
+  • Grafana:    ${GRAFANA_PF_PID}
+EOF
+fi
+
+cat <<EOF
+
+To Stop Port Forwarding:
+  kill ${BACKEND_PF_PID} ${STREAMLIT_PF_PID}
+EOF
+
+if [ "${DEPLOY_MONITORING}" = true ]; then
+  echo "  kill ${PROMETHEUS_PF_PID} ${GRAFANA_PF_PID}"
+fi
+
+cat <<EOF
+
+Kubernetes Commands:
+  # View running pods
+  kubectl get pods -n ${NAMESPACE}
+
+  # Stream backend logs
+  kubectl logs -n ${NAMESPACE} deployment/backend --tail=50 -f
+
+  # Stream streamlit logs
+  kubectl logs -n ${NAMESPACE} deployment/streamlit --tail=50 -f
+EOF
+
+if [ "${DEPLOY_MONITORING}" = true ]; then
+  cat <<EOF
+
+  # View monitoring pods
+  kubectl get pods -n ${MONITORING_NAMESPACE}
+EOF
+fi
+
+cat <<EOF
+
+┌──────────────────────────────────────────────────────────────┐
+│  📝 OPTIONAL: INGRESS SETUP                                   │
+└──────────────────────────────────────────────────────────────┘
+
+If you want to use hostnames instead of localhost:
+
+1. Enable ingress addon:
+   minikube addons enable ingress
+
+2. Add to /etc/hosts:
+   $(minikube ip) ml-emotion.local
+   $(minikube ip) streamlit.ml-emotion.local
+
+3. Access via:
+   http://ml-emotion.local/api/health
+   http://streamlit.ml-emotion.local/
+
+┌──────────────────────────────────────────────────────────────┐
+│  🔄 DEPLOYMENT OPTIONS                                        │
+└──────────────────────────────────────────────────────────────┘
+
+Script Usage:
+  $0 [OPTIONS]
+
+Options:
+  --skip-push         Skip pushing images to Docker Hub (use local images)
+  --with-monitoring   Deploy Prometheus, Grafana, and Loki monitoring stack
+  --clean            Clean deploy: delete all resources and minikube, then redeploy
+
+Examples:
+  # Standard deployment
+  $0
+
+  # Deploy with monitoring
+  $0 --with-monitoring
+
+  # Clean deployment (removes everything first)
+  $0 --clean
+
+  # Clean deployment with monitoring and local images
+  $0 --clean --with-monitoring --skip-push
+
+╔══════════════════════════════════════════════════════════════╗
+║  Port forwards will continue running in the background       ║
+║  Press Ctrl+C to exit this script (services stay running)    ║
+╚══════════════════════════════════════════════════════════════╝
+
 EOF
