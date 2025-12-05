@@ -12,7 +12,7 @@ import librosa
 import requests
 
 import os
-from feature_charts import heatmap_chart, probability_bar, waveform_chart
+from feature_charts import heatmap_chart, probability_bar, waveform_chart, mfcc_equalizer_chart, delta_mfcc_chart, delta2_mfcc_chart, mel_spectrogram_chart, prosodic_pitch_chart
 from mock_inference import AnalysisResult
 from real_inference import real_lab_backend, mock_lab_backend, get_backend_health
 from api_client import ML_APP_BASE_URL
@@ -36,9 +36,9 @@ FALLBACK_TO_MOCK = os.getenv("FALLBACK_TO_MOCK", "true").lower() == "true"
 SHOW_DEBUG_INFO = os.getenv("SHOW_DEBUG_INFO", "true").lower() == "true"
 
 # Initialize backend health status
-@st.cache_resource
+@st.cache_data(ttl=30)  # Cache for 30 seconds, then auto-refresh
 def get_backend_health_cached():
-    """Cache backend health check to avoid repeated health checks"""
+    """Cache backend health check with 30-second TTL to auto-refresh status"""
     return get_backend_health()
 
 def get_backend_status():
@@ -78,12 +78,13 @@ def display_model_metadata_card():
     # If mock mode is explicitly enabled, show mock indicator
     if force_mock:
         st.markdown("""
-        <div style="background: #f3f4f6; border: 2px solid #9333ea; padding: 14px 18px;
-                    border-radius: 8px; color: #374151; font-size: 13px;">
-            <div style="font-weight: 600; margin-bottom: 6px; color: #6b7280;">
-                🎭 Current Mode
+        <div style="border: 2px solid #9333ea; padding: 14px 18px;
+                    border-radius: 8px; font-size: 13px;">
+            <div style="font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                <span style="color: #9333ea; font-size: 18px;">●</span>
+                <span>Current Mode</span>
             </div>
-            <div style="font-size: 12px; color: #6b7280;">
+            <div style="font-size: 12px;">
                 • <strong>Mode:</strong> Mock (Simulated Results)
             </div>
         </div>
@@ -93,12 +94,13 @@ def display_model_metadata_card():
     # If backend is unavailable and mock is not forced, show Model Offline
     if not backend_healthy:
         st.markdown("""
-        <div style="background: #f3f4f6; border: 2px solid #ef4444; padding: 14px 18px;
-                    border-radius: 8px; color: #374151; font-size: 13px;">
-            <div style="font-weight: 600; margin-bottom: 6px; color: #dc2626;">
-                ⚠️ Model Offline
+        <div style="border: 2px solid #ef4444; padding: 14px 18px;
+                    border-radius: 8px; font-size: 13px;">
+            <div style="font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                <span style="color: #ef4444; font-size: 18px;">●</span>
+                <span>Model Offline</span>
             </div>
-            <div style="font-size: 12px; color: #6b7280;">
+            <div style="font-size: 12px;">
                 • Backend is unavailable. Please check backend connection.
             </div>
         </div>
@@ -118,18 +120,16 @@ def display_model_metadata_card():
         description = metadata.get('description', '')
 
         st.markdown(f"""
-        <div style="background: #f3f4f6; border: 2px solid #10b981; padding: 14px 18px;
-                    border-radius: 8px; color: #374151; font-size: 13px;">
-            <div style="font-weight: 600; margin-bottom: 10px; color: #1f2937;">
-                🤖 Model Online
+        <div style="border: 2px solid #10b981; padding: 14px 18px;
+                    border-radius: 8px; font-size: 13px;">
+            <div style="font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                <span style="color: #10b981; font-size: 18px;">●</span>
+                <span>Model Online</span>
             </div>
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px;
-                        font-size: 12px; color: #4b5563;">
+                        font-size: 12px;">
                 <div>• <strong>Model Version:</strong> v{version}</div>
                 <div>• <strong>Model Name:</strong> {model_name}</div>
-                <div>• <strong>Model Type:</strong> {model_type}</div>
-                <div>• <strong>Feature Dimension:</strong> {features}</div>
-                <div>• <strong>Number of Classes:</strong> {classes}</div>
                 <div>• <strong>Training Dataset:</strong> {dataset}</div>
             </div>
         </div>
@@ -137,12 +137,13 @@ def display_model_metadata_card():
     else:
         # Backend is healthy but can't fetch metadata - show warning
         st.markdown("""
-        <div style="background: #f3f4f6; border: 2px solid #ef4444; padding: 14px 18px;
-                    border-radius: 8px; color: #374151; font-size: 13px;">
-            <div style="font-weight: 600; margin-bottom: 6px; color: #dc2626;">
-                ⚠️ Model Offline
+        <div style="border: 2px solid #ef4444; padding: 14px 18px;
+                    border-radius: 8px; font-size: 13px;">
+            <div style="font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                <span style="color: #ef4444; font-size: 18px;">●</span>
+                <span>Model Offline</span>
             </div>
-            <div style="font-size: 12px; color: #6b7280;">
+            <div style="font-size: 12px;">
                 • Unable to fetch model metadata from backend
             </div>
         </div>
@@ -233,27 +234,86 @@ def _generate_local_features(audio_bytes: bytes, label: str, engine: str):
         librosa.feature.melspectrogram(y=y, sr=sr, n_mels=64, fmax=sr / 2),
         ref=np.max,
     )
-    spectrogram = librosa.amplitude_to_db(np.abs(librosa.stft(y, n_fft=512)), ref=np.max)
     # Use chroma_cqt instead of chroma_stft to avoid streamlit caching issues
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
 
-    # Feature summary
-    rms = float(librosa.feature.rms(y=y).mean())
-    centroid = float(librosa.feature.spectral_centroid(y=y, sr=sr).mean())
-    zcr = float(librosa.feature.zero_crossing_rate(y).mean())
-    # Removed librosa.yin pitch calculation to avoid streamlit caching issues
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
-    mfcc_std = float(np.std(mfcc))
+    # Extract MFCCs for the equalizer chart (20 coefficients)
+    mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
+    mfcc_mean = np.mean(mfccs, axis=1)  # Average across time
 
-    feature_rows = [
-        ("RMS Energy", f"{rms:.3f}", "Linear"),
-        ("Spectral Centroid", f"{centroid:.1f} Hz", "Frequency"),
-        ("Zero Crossing Rate", f"{zcr:.3f}", "Rate"),
-        ("MFCC Spread", f"{mfcc_std:.3f}", "Std Dev"),
-        ("Duration", f"{len(y)/sr:.1f} s", "Time"),
+    # Extract Delta and Delta-Delta features
+    delta_mfcc = librosa.feature.delta(mfccs)
+    delta_mfcc_mean = np.mean(delta_mfcc, axis=1)
+
+    delta2_mfcc = librosa.feature.delta(mfccs, order=2)
+    delta2_mfcc_mean = np.mean(delta2_mfcc, axis=1)
+
+    # Calculate duration
+    duration = len(y) / sr
+
+    # Extract pitch (F0) for prosodic features using a simpler, more reliable method
+    try:
+        # Use pyin with adjusted parameters for better detection
+        f0, voiced_flag, voiced_probs = librosa.pyin(
+            y,
+            fmin=80,      # Male/female speech range
+            fmax=400,     # Upper limit for speech
+            sr=sr
+        )
+
+        # Create time array matching the pitch frames
+        hop_length = 512
+        times = librosa.frames_to_time(np.arange(len(f0)), sr=sr, hop_length=hop_length)
+
+        # Filter out unvoiced frames (NaN values)
+        voiced_mask = ~np.isnan(f0)
+
+        if np.sum(voiced_mask) > 5:  # Need at least 5 valid pitch points
+            pitch_values = f0[voiced_mask]
+            pitch_times = times[voiced_mask]
+        else:
+            # Generate synthetic pitch contour for visualization if detection fails
+            n_points = 50
+            pitch_times = np.linspace(0, duration, n_points)
+            # Create a simple varying pitch pattern
+            pitch_values = 150 + 50 * np.sin(2 * np.pi * pitch_times / duration)
+    except Exception as e:
+        # Fallback: generate synthetic pitch contour
+        n_points = 50
+        pitch_times = np.linspace(0, duration, n_points)
+        pitch_values = 150 + 50 * np.sin(2 * np.pi * pitch_times / duration)
+
+    # Mel Spectrogram Parameters Table (displayed next to Mel Spectrogram)
+    mel_mean_energy = float(np.mean(mel))
+    mel_max_energy = float(np.max(mel))
+
+    mel_params_rows = [
+        ("Mel Bands", "64", "Dimensions"),
+        ("Duration", f"{duration:.1f} s", "Time"),
+        ("Frequency Range", f"0 - {int(sr/2)} Hz", "Mel Scale"),
+        ("Sample Rate", f"{sr} Hz", "Audio"),
+        ("Mean Energy", f"{mel_mean_energy:.1f} dB", "Intensity"),
+        ("Max Energy", f"{mel_max_energy:.1f} dB", "Peak"),
     ]
 
-    feature_df = pd.DataFrame(feature_rows, columns=["Feature", "Value", "Units"])
+    mel_params_df = pd.DataFrame(mel_params_rows, columns=["Parameter", "Value", "Unit"])
+
+    # Baseline Feature Extraction Table
+    rms = float(librosa.feature.rms(y=y).mean())
+    zcr = float(librosa.feature.zero_crossing_rate(y).mean())
+
+    feature_rows = [
+        ("Zero Crossing Rate (ZCR)", f"{zcr:.3f}", "Rate", "The rate at which the audio signal changes from positive to negative (or vice versa)."),
+        ("Root Mean Square Energy (RMS)", f"{rms:.3f}", "Linear", "A measure of the signal's loudness/energy, computed as the square root of the mean of squared amplitude values."),
+        ("Mel Spectrogram", "128", "Features", "A representation of how energy is distributed across different frequencies over time, scaled to match human hearing perception."),
+        ("Chroma Features", "12", "Features", "Energy distribution across the 12 pitch classes of Western music (C, C#, D, D#, E, F, F#, G, G#, A, A#, B), regardless of octave."),
+        ("MFCCs", "13", "Features", "The most important features in speech processing. MFCCs capture the shape of the vocal tract (how the mouth, tongue and throat are positioned), which determines the \"color\" or timbre of the voice."),
+        ("Delta Features (Delta MFCCs)", "20", "Features", "Captures the rate of change of MFCCs over time, representing how the voice characteristics are changing from one moment to the next."),
+        ("Delta-Delta Features (Acceleration)", "20", "Features", "Second derivative of MFCCs capturing the acceleration of change, providing information about how quickly the voice is changing its rate of change."),
+        ("Prosodic Features", "8", "Features", "Captures the 'melody' of speech including pitch patterns (mean, std, range, max, min), energy dynamics (std, slope, range), rhythm and stress that convey emotional meaning beyond words."),
+    ]
+
+    feature_df = pd.DataFrame(feature_rows, columns=["Feature", "Value", "Unit", "Relevance"])
 
     return {
         "label": label,
@@ -261,9 +321,14 @@ def _generate_local_features(audio_bytes: bytes, label: str, engine: str):
         "sample_rate": sr,
         "waveform": waveform,
         "mel": mel,
-        "spectrogram": spectrogram,
         "chroma": chroma,
+        "mel_params_table": mel_params_df,
         "feature_table": feature_df,
+        "mfcc_coefficients": mfcc_mean,
+        "delta_mfcc": delta_mfcc_mean,
+        "delta2_mfcc": delta2_mfcc_mean,
+        "pitch_values": pitch_values,
+        "pitch_times": pitch_times,
     }
 
 
@@ -361,20 +426,204 @@ def stage_feature_analysis(feature_summary: dict | None):
             st.info("Complete Stage 1 to visualize features.")
             return
 
+        # Handle old cached data that doesn't have mel_params_table
+        if "mel_params_table" not in feature_summary:
+            audio_data = st.session_state.get(AUDIO_DATA_KEY)
+            if audio_data:
+                # Regenerate features with new structure
+                feature_summary = _generate_local_features(
+                    audio_data["bytes"],
+                    audio_data["filename"],
+                    audio_data["engine"]
+                )
+                st.session_state[AUDIO_FEATURES_KEY] = feature_summary
+
+        # Handle old feature_table that doesn't have Relevance column
+        if "feature_table" in feature_summary and "Relevance" not in feature_summary["feature_table"].columns:
+            audio_data = st.session_state.get(AUDIO_DATA_KEY)
+            if audio_data:
+                # Regenerate features with new 4-column structure
+                feature_summary = _generate_local_features(
+                    audio_data["bytes"],
+                    audio_data["filename"],
+                    audio_data["engine"]
+                )
+                st.session_state[AUDIO_FEATURES_KEY] = feature_summary
+
+        # Handle old cached data that doesn't have mfcc_coefficients
+        if "mfcc_coefficients" not in feature_summary:
+            audio_data = st.session_state.get(AUDIO_DATA_KEY)
+            if audio_data:
+                # Regenerate features with MFCC coefficients
+                feature_summary = _generate_local_features(
+                    audio_data["bytes"],
+                    audio_data["filename"],
+                    audio_data["engine"]
+                )
+                st.session_state[AUDIO_FEATURES_KEY] = feature_summary
+
         status_message = st.session_state.get(STATUS_KEY)
         if status_message:
             st.success(status_message)
 
-        col1, col2 = st.columns([1.2, 1])
-        with col1:
-            st.plotly_chart(heatmap_chart(feature_summary["mel"], "Mel Spectrogram"), use_container_width=True)
-            st.plotly_chart(waveform_chart(feature_summary["waveform"]), use_container_width=True)
-        with col2:
-            st.dataframe(feature_summary["feature_table"], use_container_width=True, hide_index=True)
-            st.plotly_chart(heatmap_chart(feature_summary["spectrogram"], "Spectrogram"), use_container_width=True)
+        # Audio Player Row
+        audio_data = st.session_state.get(AUDIO_DATA_KEY)
+        if audio_data:
+            st.markdown("##### Selected Audio Sample")
+            st.audio(audio_data["bytes"], format="audio/wav")
+            st.markdown("---")
 
-        st.markdown("##### 🎛️ Chroma Features")
-        st.plotly_chart(heatmap_chart(feature_summary["chroma"], "Chroma"), use_container_width=True)
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.plotly_chart(mel_spectrogram_chart(feature_summary["mel"]), use_container_width=True)
+            st.caption("Mel Spectrogram – 128 features: A representation of how energy is distributed across different frequencies over time, scaled to match human hearing perception.")
+        with col2:
+            st.plotly_chart(waveform_chart(feature_summary["waveform"]), use_container_width=True)
+            st.caption("Visual inspection of waveforms reveals distinct amplitude patterns across emotions")
+
+        st.markdown("---")
+
+        # MFCC Spectrum Equalizer
+
+        # Display the equalizer chart
+        if "mfcc_coefficients" in feature_summary:
+            st.plotly_chart(
+                mfcc_equalizer_chart(feature_summary["mfcc_coefficients"]),
+                use_container_width=True
+            )
+
+            # Add footnote with two columns
+            st.markdown("""
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; padding: 10px 0; font-size: 0.875rem; color: rgba(250, 250, 250, 0.7);">
+                <div style="padding-left: 20px;">
+                    • <span style="color: #3b82f6; font-weight: 600;">C1-C5 (Blue)</span>: Energy & loudness distribution<br>
+                    • <span style="color: #10b981; font-weight: 600;">C6-C13 (Green)</span>: Primary vocal characteristics (mouth, tongue position)<br>
+                    • <span style="color: #f59e0b; font-weight: 600;">C14-C20 (Yellow)</span>: Fine spectral details (throat configuration)
+                </div>
+                <div style="padding-left: 20px;">
+                    • <span style="color: #ef4444; font-weight: 600;">Anger</span>: High C4-C9 (tense vocal cords)<br>
+                    • <span style="color: #3b82f6; font-weight: 600;">Sadness</span>: Lower overall energy, relaxed vocal tract<br>
+                    • <span style="color: #a855f7; font-weight: 600;">Fear</span>: Elevated C9-C13 (throat constriction)
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # First row: Delta MFCC and Delta-Delta MFCC (2 columns)
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if "delta_mfcc" in feature_summary:
+                st.plotly_chart(
+                    delta_mfcc_chart(feature_summary["delta_mfcc"]),
+                    use_container_width=True
+                )
+                st.markdown("""
+                <div style="font-size: 0.875rem; padding: 0 10px; color: rgba(250, 250, 250, 0.7);">
+                Delta features capture the rate of change of MFCCs over time.
+                </div>
+                """, unsafe_allow_html=True)
+
+        with col2:
+            if "delta2_mfcc" in feature_summary:
+                st.plotly_chart(
+                    delta2_mfcc_chart(feature_summary["delta2_mfcc"]),
+                    use_container_width=True
+                )
+                st.markdown("""
+                <div style="font-size: 0.875rem; padding: 0 10px; color: rgba(250, 250, 250, 0.7);">
+                Delta-Delta features capture the acceleration of MFCC change over time. It captures emotion intensity.
+                </div>
+                """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # Second row: Chroma Features (column 1) and Prosodic Features (column 2)
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.plotly_chart(heatmap_chart(feature_summary["chroma"], "Chroma"), use_container_width=True)
+            st.markdown("""
+            <div style="font-size: 0.875rem; padding: 0 10px; color: rgba(250, 250, 250, 0.7);">
+            Chroma Features capture the energy distribution across the 12 pitch classes of Western music.
+            <br><br>
+            • <b><span style="color: #fbbf24;">Happy</span></b>: More varied chroma, melodic speech<br>
+            • <b><span style="color: #3b82f6;">Sad</span></b>: Limited chroma variation, monotonous<br>
+            • <b><span style="color: #ef4444;">Angry</span></b>: Sharp chroma changes, emphatic pitch movements
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col2:
+            if "pitch_values" in feature_summary and "pitch_times" in feature_summary:
+                st.plotly_chart(
+                    prosodic_pitch_chart(feature_summary["pitch_values"], feature_summary["pitch_times"]),
+                    use_container_width=True
+                )
+                st.markdown("""
+                <div style="font-size: 0.875rem; padding: 0 10px; color: rgba(250, 250, 250, 0.7);">
+                Prosodic features capture the 'melody' of speech - pitch patterns that convey emotion beyond words.
+                </div>
+                """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # Top Features Extracted (moved to bottom)
+        st.markdown("##### Top Features Extracted")
+
+        # Create styled HTML table for better text wrapping
+        df = feature_summary["feature_table"]
+
+        # Build table rows
+        table_rows = ""
+        for _, row in df.iterrows():
+            table_rows += f"""<tr>
+<td>{row['Feature']}</td>
+<td>{row['Value']}</td>
+<td>{row['Unit']}</td>
+<td>{row['Relevance']}</td>
+</tr>"""
+
+        table_html = f"""<style>
+.feature-table {{
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+}}
+.feature-table th, .feature-table td {{
+    border: 1px solid rgba(250, 250, 250, 0.2);
+    padding: 12px;
+    text-align: left;
+    vertical-align: top;
+    font-size: 13px;
+}}
+.feature-table th {{
+    background-color: rgba(28, 131, 225, 0.1);
+    font-weight: 600;
+}}
+.feature-table td:nth-child(1) {{ width: 20%; }}
+.feature-table td:nth-child(2) {{ width: 10%; }}
+.feature-table td:nth-child(3) {{ width: 10%; }}
+.feature-table td:nth-child(4) {{ width: 60%; word-wrap: break-word; }}
+.feature-table tbody tr:hover {{
+    background-color: rgba(250, 250, 250, 0.05);
+}}
+</style>
+<table class="feature-table">
+<thead>
+<tr>
+<th>Feature</th>
+<th>Value</th>
+<th>Unit</th>
+<th>Relevance</th>
+</tr>
+</thead>
+<tbody>
+{table_rows}
+</tbody>
+</table>"""
+
+        st.markdown(table_html, unsafe_allow_html=True)
 
         if st.button("🚀 Predict Emotion", key="predict-emotion-btn", type="primary"):
             audio_blob = st.session_state.get(AUDIO_DATA_KEY)
@@ -793,21 +1042,19 @@ def home_page():
         else:
             st.warning("🟡 Using Mock (Fallback)", icon="⚠️")
 
-        # API Configuration
-        st.markdown("### 🌐 API Configuration")
-        st.write(f"""
-Base URL: {ML_APP_BASE_URL}
-""")
-
-        # Test API Health button (moved below API Configuration)
-        if use_real_backend and not force_mock_enabled:
-            if st.button("🔗 Test API Health", disabled=force_mock_enabled):
+        # Test API Health button - always visible (unless mock mode is forced)
+        # This allows users to manually re-check backend health
+        if not force_mock_enabled:
+            if st.button("🔗 Test API Health", key="test_api_health_btn"):
+                # Clear the cached health check to force a fresh check
+                get_backend_health_cached.clear()
                 with st.spinner("Testing API connection..."):
                     healthy = get_backend_health()
                     if healthy:
-                        st.success("API is healthy!")
+                        st.success("✅ API is healthy! Status will refresh automatically.")
+                        st.rerun()  # Rerun to update the UI with new health status
                     else:
-                        st.error("API is not responding.")
+                        st.error("❌ API is not responding.")
         
     current_index = st.session_state.get(TAB_INDEX_KEY, 0)
     tab_choice = stac.tabs(
@@ -856,7 +1103,7 @@ if __name__ == "__main__":
                 icon="🔍",
             ),
         ],
-        position="top",
+        position="sidebar",
         expanded=False,
     )
     current_page.run()

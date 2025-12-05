@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from threading import Lock
 from typing import Dict, List, Optional
+import uuid
 
 import pandas as pd
 
@@ -26,11 +27,18 @@ class PredictionRecord:
     features: Dict[str, float]
     actual_emotion: Optional[str] = None
     filename: Optional[str] = None
+    prediction_id: str = None  # Unique identifier for feedback tracking
+
+    def __post_init__(self):
+        """Generate prediction ID if not provided."""
+        if self.prediction_id is None:
+            self.prediction_id = str(uuid.uuid4())
 
     def to_row(self) -> Dict[str, object]:
         """Convert record to a flat dictionary for DataFrame creation."""
 
         row: Dict[str, object] = {
+            "prediction_id": self.prediction_id,
             "timestamp": self.timestamp,
             "model_version": self.model_version,
             "predicted_emotion": self.predicted_emotion,
@@ -61,6 +69,26 @@ class PredictionBuffer:
         with self._lock:
             self._buffer.append(record)
             return len(self._buffer)
+
+    def update_feedback(self, prediction_id: str, actual_emotion: str) -> bool:
+        """Update the actual_emotion field for a given prediction ID.
+
+        Returns True if the prediction was found and updated, False otherwise.
+        """
+
+        with self._lock:
+            for record in self._buffer:
+                if record.prediction_id == prediction_id:
+                    record.actual_emotion = actual_emotion
+                    logger.info(
+                        "Updated feedback for prediction",
+                        prediction_id=prediction_id,
+                        actual_emotion=actual_emotion,
+                    )
+                    return True
+
+        logger.warning("Prediction not found for feedback", prediction_id=prediction_id)
+        return False
 
     def to_dataframe(self) -> pd.DataFrame:
         """Export buffered records to a pandas DataFrame."""

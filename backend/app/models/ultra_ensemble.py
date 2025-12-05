@@ -25,7 +25,10 @@ class UltraEnsembleModel:
 
     def predict(self, X):
         """
-        Predict emotion classes using majority voting across all models.
+        Predict emotion classes using the class with highest averaged probability.
+
+        This ensures consistency between predict() and predict_proba() methods.
+        The predicted class will always be the one with the maximum averaged probability.
 
         Args:
             X: Feature array of shape (n_samples, n_features)
@@ -33,23 +36,17 @@ class UltraEnsembleModel:
         Returns:
             np.ndarray: Predicted class labels for each sample
         """
-        all_preds = {}
+        # Get averaged probabilities
+        probabilities = self.predict_proba(X)
 
-        for name, model in self.models.items():
-            if name == 'stacking_selected' and self.selector is not None:
-                X_sel = self.selector.transform(X)
-                all_preds[name] = model.predict(X_sel)
-            else:
-                all_preds[name] = model.predict(X)
+        # Return class with highest probability for each sample
+        # This ensures predict() is consistent with predict_proba()
+        if not hasattr(self, 'classes_'):
+            # Fallback: if classes_ not set, use indices
+            return np.argmax(probabilities, axis=1)
 
-        # Majority voting
-        n_samples = len(X)
-        final_preds = []
-        for i in range(n_samples):
-            votes = [pred[i] for pred in all_preds.values()]
-            final_preds.append(max(set(votes), key=votes.count))
-
-        return np.array(final_preds)
+        # Return actual class labels
+        return self.classes_[np.argmax(probabilities, axis=1)]
 
     def predict_proba(self, X):
         """

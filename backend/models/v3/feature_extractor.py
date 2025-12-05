@@ -9,6 +9,7 @@ Training parameters:
 - Offset: 0.6 seconds
 - Sample rate: default (22050 Hz)
 - n_mfcc: 20
+- Audio trimming: top_db=20 (removes leading/trailing silence)
 """
 
 import io
@@ -57,6 +58,9 @@ def extract_features(audio_bytes: bytes, filename: str) -> np.ndarray:
             duration=2.5,
             offset=0.6
         )
+
+        # CRITICAL: Trim leading/trailing silence (matches training)
+        data, _ = librosa.effects.trim(data, top_db=20)
 
         # Initialize result array
         result = np.array([])

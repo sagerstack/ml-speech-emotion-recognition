@@ -125,7 +125,7 @@ async def infer_latest(
         ).inc()
         LOCAL_INFERENCE_DURATION.labels(version=latest_model.version).observe(time.time() - start_time)
 
-        _log_prediction_for_monitoring(
+        prediction_id = _log_prediction_for_monitoring(
             result=result,
             filename=file.filename,
             background_tasks=background_tasks,
@@ -136,7 +136,8 @@ async def infer_latest(
             "prediction": {
                 "emotion": result["emotion"],
                 "confidence": result["confidence"],
-                "all_probabilities": result["all_probabilities"]
+                "all_probabilities": result["all_probabilities"],
+                "prediction_id": prediction_id  # For user feedback submission
             },
             "model_info": {
                 "type": result["model_type"],
@@ -602,8 +603,12 @@ async def get_latest_model_info() -> Dict[str, Any]:
 
 def _log_prediction_for_monitoring(
     result: Dict[str, Any], filename: str, background_tasks: BackgroundTasks | None
-) -> None:
-    """Send prediction details to the monitoring buffer and trigger reports."""
+) -> str:
+    """Send prediction details to the monitoring buffer and trigger reports.
+
+    Returns:
+        prediction_id: UUID of the logged prediction (for feedback submission)
+    """
 
     try:
         monitoring_service = get_monitoring_service()
@@ -622,5 +627,8 @@ def _log_prediction_for_monitoring(
         if background_tasks and monitoring_service.should_generate_report(buffer_length):
             background_tasks.add_task(monitoring_service.generate_report)
 
+        return record.prediction_id
+
     except Exception as exc:  # pragma: no cover - telemetry shouldn't break inference
         logger.warning("Monitoring logging skipped", error=str(exc))
+        return ""  # Return empty string if logging fails

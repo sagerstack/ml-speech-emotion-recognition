@@ -968,14 +968,14 @@ gmpy2 = ["gmpy2"]
 
 [[package]]
 name = "evidently"
-version = "0.4.40"
+version = "0.7.17"
 description = "Open-source tools to analyze, monitor, and debug machine learning model in production."
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "evidently-0.4.40-py3-none-any.whl", hash = "sha256:a19221b10dc3193ad96cd8ba18ebe015eeb96f62fdf450f584cd0d2ede358f5d"},
-    {file = "evidently-0.4.40.tar.gz", hash = "sha256:590cdc0eb6d6e4f3b42db5509562f15a04193e23a7c86252422b109057fb341b"},
+    {file = "evidently-0.7.17-py3-none-any.whl", hash = "sha256:c32cb03238fbbadf7cb044a4de88b98fe36e14972e27e54c2880ba68763c4af9"},
+    {file = "evidently-0.7.17.tar.gz", hash = "sha256:229a740ebec09164ea67f4287acaf4013084d5478e74a6bf91bfb17216eb16bf"},
 ]
 
 [package.dependencies]
@@ -987,14 +987,15 @@ fsspec = ">=2024.6.1"
 iterative-telemetry = ">=0.0.5"
 litestar = ">=2.8.3"
 nltk = ">=3.6.7"
-numpy = ">=1.22.0,<2.1"
+numpy = ">=1.22.0"
+opentelemetry-proto = ">=1.25.0"
 pandas = {version = ">=1.3.5", extras = ["parquet"]}
-plotly = ">=5.10.0"
-pydantic = ">=1.10.13"
+plotly = ">=5.10.0,<6"
+pydantic = ">=1.10.16"
 PyYAML = ">=5.4"
 requests = ">=2.32.0"
 rich = ">=13"
-scikit-learn = ">=1.0.1"
+scikit-learn = ">=1.1.1"
 scipy = ">=1.10.0"
 statsmodels = ">=0.12.2"
 typer = ">=0.3"
@@ -1006,10 +1007,13 @@ uvicorn = {version = ">=0.22.0", extras = ["standard"]}
 watchdog = ">=3.0.0"
 
 [package.extras]
-dev = ["httpx (==0.27.0)", "jupyter (==1.0.0)", "mypy (==1.1.1)", "pandas-stubs (>=1.3.5)", "pillow (==10.3.0)", "pip-audit (>=2.7.2)", "pre-commit (==3.5.0)", "pytest (==7.4.4)", "pytest-asyncio (==0.23.7)", "ruff (==0.3.7)", "setuptools (==65.5.1) ; python_version < \"3.12\"", "setuptools (==68.2.2) ; python_version >= \"3.12\"", "types-PyYAML (==6.0.1)", "types-dataclasses (==0.6)", "types-python-dateutil (==2.8.19)", "types-requests (==2.26.0)", "types-ujson (>=5.4.0)", "wheel (==0.38.1)"]
+dev = ["httpx (==0.27.0)", "jupyter (==1.0.0)", "mypy (==1.1.1)", "pandas-stubs (>=1.3.5)", "pillow (>=11.3.0)", "pip-audit (>=2.7.2)", "pre-commit (==3.5.0)", "pytest (==7.4.4)", "pytest-asyncio (==0.23.7)", "pytest-mock (==3.14.0)", "ruff (==0.3.7)", "setuptools (==65.5.1) ; python_version < \"3.12\"", "setuptools (==68.2.2) ; python_version >= \"3.12\"", "tracely (>=0.2.11)", "types-PyYAML (==6.0.1)", "types-dataclasses (==0.6)", "types-python-dateutil (==2.8.19)", "types-requests (==2.26.0)", "types-ujson (>=5.4.0)", "wheel (==0.38.1)"]
 fsspec = ["gcsfs (>=2024.9.0)", "s3fs (>=2024.9.0)"]
-llm = ["chromadb (>=0.4.0)", "evaluate (>=0.4.1)", "openai (>=1.16.2)", "sentence-transformers (>=2.7.0)", "transformers[torch] (>=4.39.3)"]
-spark = ["pyspark (>=3.4.0)"]
+gcs = ["gcsfs (>=2024.9.0)"]
+llm = ["evaluate (>=0.4.1)", "faiss-cpu (>=1.8.0)", "litellm (>=1.74.3)", "llama-index (>=0.10)", "openai (>=1.16.2)", "sentence-transformers (>=2.7.0)", "sqlvalidator (>=0.0.20)", "transformers[torch] (>=4.39.3)"]
+s3 = ["s3fs (>=2024.9.0)"]
+spark = ["pyspark (>=3.4.0,<4)"]
+sql = ["alembic (>=1.13.0)", "psycopg2-binary (>=2.9.0)", "sqlalchemy (>=2.0.0)"]
 
 [[package]]
 name = "execnet"
@@ -5362,4 +5366,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "6f5294f0861a6c56ee4edbc3c3a7b1711306e4b53bf86106d4e7efb4f7ccff52"
+content-hash = "177da22d9f9919158c3041308d20de493b8f8657e34d87b6c45b6f15c063ac9b"

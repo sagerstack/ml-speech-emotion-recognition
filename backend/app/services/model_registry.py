@@ -337,7 +337,8 @@ class ModelRegistry:
                 probabilities = model_version.model.predict_proba(features_2d)[0]
                 classes = model_version.model.classes_
                 all_probs = dict(zip(classes, probabilities.tolist()))
-                confidence = max(probabilities)
+                # Get confidence for the predicted emotion, not the maximum probability
+                confidence = all_probs.get(prediction, max(probabilities))
             else:
                 # For models without probability scores (like decision trees without probability)
                 all_probs = {prediction: 1.0}
