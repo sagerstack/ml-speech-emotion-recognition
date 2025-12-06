@@ -2,15 +2,16 @@
 
 from datetime import datetime
 from pathlib import Path
+
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.v1.endpoints import inference as inference_module
 from app.api.v1.endpoints import monitoring as monitoring_module
-from app.api.v1.endpoints import inference_local as inference_local_module
+from app.domain.monitoring.prediction_buffer import PredictionBuffer, PredictionRecord
+from app.infrastructure.monitoring.evidently_service import EvidentlyMonitoringService
 from app.main import app
-from app.services.evidently_monitoring import EvidentlyMonitoringService
-from app.services.prediction_buffer import PredictionBuffer, PredictionRecord
 
 
 class DummyReport:
@@ -25,7 +26,7 @@ class DummyReport:
         Path(path).write_text("<html>dummy</html>")
 
     def save_json(self, path: Path) -> None:
-        Path(path).write_text("{\"metrics\": []}")
+        Path(path).write_text('{"metrics": []}')
 
     def as_dict(self) -> dict:
         return {
@@ -72,7 +73,7 @@ def monitoring_service(tmp_path_factory, monkeypatch):
         )
     )
 
-    monkeypatch.setattr("app.services.evidently_monitoring.Report", DummyReport)
+    monkeypatch.setattr("app.infrastructure.monitoring.evidently_service.Report", DummyReport)
 
     service = EvidentlyMonitoringService(
         buffer=buffer,
@@ -82,7 +83,7 @@ def monitoring_service(tmp_path_factory, monkeypatch):
     )
 
     monkeypatch.setattr(monitoring_module, "get_monitoring_service", lambda: service)
-    monkeypatch.setattr(inference_local_module, "get_monitoring_service", lambda: service)
+    monkeypatch.setattr(inference_module, "get_monitoring_service", lambda: service)
 
     return service
 

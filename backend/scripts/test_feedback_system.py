@@ -1,12 +1,11 @@
 """
-Test script for inference + feedback system using RAVDESS dataset.
+Test script for inference + monitoring using RAVDESS dataset and v2 API.
 
 This script:
 1. Randomly samples 10 RAVDESS audio files (excluding calm and surprised emotions)
-2. Posts inference requests to /v1/infer/local/latest
-3. Extracts ground truth emotion from RAVDESS filename
-4. Posts feedback with actual emotion to /v1/monitoring/feedback/{prediction_id}
-5. Verifies the monitoring report is generated after 10 predictions
+2. Posts inference requests to /v2/inference
+3. Monitors are automatically logged by the v2 endpoint
+4. Generates monitoring snapshots for the Evidently dashboard
 
 Usage:
     poetry run python scripts/test_feedback_system.py
@@ -21,7 +20,7 @@ from pathlib import Path
 import requests
 
 # Configuration
-API_BASE_URL = "http://localhost:8000/v1"
+API_BASE_URL = "http://localhost:8000"
 RAVDESS_DATA_DIR = Path(__file__).parent.parent.parent / "data" / "ravdess-speech-audio"
 NUM_PREDICTIONS = 10
 
@@ -84,12 +83,12 @@ def find_ravdess_files(num_files: int) -> list[tuple[Path, str]]:
 
 
 def post_inference(file_path: Path) -> tuple[str, str, str]:
-    """Post inference request to API.
+    """Post inference request to API using v2 endpoint.
 
     Returns:
         Tuple of (prediction_id, predicted_emotion, filename)
     """
-    url = f"{API_BASE_URL}/infer/local/latest"
+    url = f"{API_BASE_URL}/v2/inference"
 
     with open(file_path, "rb") as f:
         files = {"file": (file_path.name, f, "audio/wav")}
@@ -143,11 +142,8 @@ def main():
         print(f"  Ground Truth: {actual_emotion}")
 
         try:
-            # Step 1: Post inference
+            # Post inference (monitoring is automatic with v2 endpoint)
             prediction_id, predicted_emotion, filename = post_inference(file_path)
-
-            # Step 2: Post feedback
-            post_feedback(prediction_id, actual_emotion)
 
             # Track results
             correct = predicted_emotion == actual_emotion

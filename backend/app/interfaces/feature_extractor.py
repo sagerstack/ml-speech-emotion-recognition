@@ -8,7 +8,9 @@ Using Protocol for structural subtyping - your extractor doesn't need to explici
 it just needs to implement the required methods with correct signatures.
 """
 
-from typing import Protocol, runtime_checkable, Callable
+from collections.abc import Callable
+from typing import Protocol, runtime_checkable
+
 import numpy as np
 
 
@@ -97,10 +99,10 @@ def validate_feature_extractor(extractor_module) -> bool:
         True
     """
     # Check if extract_features function exists
-    if not hasattr(extractor_module, 'extract_features'):
+    if not hasattr(extractor_module, "extract_features"):
         return False
 
-    extract_fn = getattr(extractor_module, 'extract_features')
+    extract_fn = getattr(extractor_module, "extract_features")
 
     # Check if it's callable
     if not callable(extract_fn):
@@ -108,6 +110,7 @@ def validate_feature_extractor(extractor_module) -> bool:
 
     # Optional: Check function signature
     import inspect
+
     sig = inspect.signature(extract_fn)
     params = list(sig.parameters.keys())
 

@@ -1,0 +1,246 @@
+"""Unit tests for FileSystemModelRepository."""
+
+import json
+import tempfile
+from pathlib import Path
+
+import joblib
+import numpy as np
+import pytest
+
+from app.domain.model.entities.model_info import ModelInfo
+from app.domain.model.exceptions.model_not_found_error import ModelNotFoundError
+from app.domain.model.value_objects.model_version import ModelVersion
+from app.infrastructure.model.file_system_model_repository import FileSystemModelRepository
+
+
+class SimpleMockModel:
+    """Simple mock model that can be pickled."""
+
+    def predict_proba(self, X):
+        """Mock predict_proba method."""
+        return np.array([[0.1, 0.2, 0.1, 0.4, 0.1, 0.1]])
+
+    def predict(self, X):
+        """Mock predict method."""
+        return np.array([3])  # Index of max probability
+
+
+class TestFileSystemModelRepository:
+    """Test suite for FileSystemModelRepository."""
+
+    @pytest.fixture
+    def models_dir(self) -> Path:
+        """Create temporary models directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+
+            # Create v4 model directory structure
+            v4_dir = base_path / "v4"
+            v4_dir.mkdir()
+
+            # Create metadata.json
+            metadata = {
+                "version": "4",
+                "model_name": "Ultra Ensemble Model v4",
+                "model_type": "Ultra Ensemble",
+                "feature_dimension": 210,
+                "sklearn_version": "1.6.1",
+                "created_date": "2024-12-03",
+                "dataset": "CREMA-D",
+                "classes": ["angry", "disgust", "fear", "happy", "neutral", "sad"],
+                "num_classes": 6,
+            }
+
+            with open(v4_dir / "metadata.json", "w") as f:
+                json.dump(metadata, f)
+
+            # Create a mock model.pkl (not a real model to save space)
+            mock_model = SimpleMockModel()
+            joblib.dump(mock_model, v4_dir / "model.pkl")
+
+            yield base_path
+
+    @pytest.fixture
+    def repository(self, models_dir: Path) -> FileSystemModelRepository:
+        """Create FileSystemModelRepository instance."""
+        return FileSystemModelRepository(models_dir=str(models_dir))
+
+    # Test load_model
+    def test_load_model_returns_model(self, repository: FileSystemModelRepository):
+        """Test that load_model successfully loads a model."""
+        version = ModelVersion.from_string("v4")
+        model = repository.load_model(version)
+
+        assert model is not None
+        # Model is wrapped in adapter, so it should have domain interface method
+        assert hasattr(model, "predict_emotion_probabilities")
+
+    def test_load_model_raises_error_for_nonexistent_version(
+        self, repository: FileSystemModelRepository
+    ):
+        """Test that load_model raises ModelNotFoundError for nonexistent version."""
+        version = ModelVersion.from_string("v999")
+
+        with pytest.raises(ModelNotFoundError):
+            repository.load_model(version)
+
+    def test_load_model_caches_loaded_models(self, repository: FileSystemModelRepository):
+        """Test that load_model caches models after first load."""
+        version = ModelVersion.from_string("v4")
+
+        # Load twice
+        model1 = repository.load_model(version)
+        model2 = repository.load_model(version)
+
+        # Should be the same object (cached)
+        assert model1 is model2
+
+    # Test get_model_info
+    def test_get_model_info_returns_correct_info(self, repository: FileSystemModelRepository):
+        """Test that get_model_info returns correct ModelInfo."""
+        version = ModelVersion.from_string("v4")
+        info = repository.get_model_info(version)
+
+        assert info is not None
+        assert isinstance(info, ModelInfo)
+        assert info.version == version
+        assert info.model_type == "Ultra Ensemble"
+        assert info.feature_dimension == 210
+
+    def test_get_model_info_returns_none_for_nonexistent_version(
+        self, repository: FileSystemModelRepository
+    ):
+        """Test that get_model_info returns None for nonexistent version."""
+        version = ModelVersion.from_string("v999")
+        info = repository.get_model_info(version)
+
+        assert info is None
+
+    # Test list_available_versions
+    def test_list_available_versions_returns_versions(self, repository: FileSystemModelRepository):
+        """Test that list_available_versions returns list of versions."""
+        versions = repository.list_available_versions()
+
+        assert len(versions) == 1
+        assert versions[0] == ModelVersion.from_string("v4")
+
+    def test_list_available_versions_returns_empty_for_empty_dir(self):
+        """Test that list_available_versions returns empty list for empty directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = FileSystemModelRepository(models_dir=temp_dir)
+            versions = repo.list_available_versions()
+
+            assert versions == []
+
+    # Test model_exists
+    def test_model_exists_returns_true_for_existing_model(
+        self, repository: FileSystemModelRepository
+    ):
+        """Test that model_exists returns True for existing model."""
+        version = ModelVersion.from_string("v4")
+        exists = repository.model_exists(version)
+
+        assert exists is True
+
+    def test_model_exists_returns_false_for_nonexistent_model(
+        self, repository: FileSystemModelRepository
+    ):
+        """Test that model_exists returns False for nonexistent model."""
+        version = ModelVersion.from_string("v999")
+        exists = repository.model_exists(version)
+
+        assert exists is False
+
+    # Test get_latest_version
+    def test_get_latest_version_returns_highest_version(
+        self, repository: FileSystemModelRepository
+    ):
+        """Test that get_latest_version returns the highest version."""
+        latest = repository.get_latest_version()
+
+        assert latest is not None
+        assert latest == ModelVersion.from_string("v4")
+
+    def test_get_latest_version_returns_none_for_empty_dir(self):
+        """Test that get_latest_version returns None for empty directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = FileSystemModelRepository(models_dir=temp_dir)
+            latest = repo.get_latest_version()
+
+            assert latest is None
+
+    # Test error handling
+    def test_load_model_raises_error_for_missing_model_file(self, models_dir: Path):
+        """Test that load_model raises error if model.pkl is missing."""
+        # Create v5 directory without model.pkl
+        v5_dir = models_dir / "v5"
+        v5_dir.mkdir()
+
+        metadata = {"version": "5", "model_type": "Test", "feature_dimension": 210}
+        with open(v5_dir / "metadata.json", "w") as f:
+            json.dump(metadata, f)
+
+        repo = FileSystemModelRepository(models_dir=str(models_dir))
+        version = ModelVersion.from_string("v5")
+
+        with pytest.raises(ModelNotFoundError):
+            repo.load_model(version)
+
+    def test_get_model_info_handles_invalid_metadata(self, models_dir: Path):
+        """Test that get_model_info handles invalid metadata gracefully."""
+        # Create v5 directory with invalid metadata
+        v5_dir = models_dir / "v5"
+        v5_dir.mkdir()
+
+        # Write invalid JSON
+        with open(v5_dir / "metadata.json", "w") as f:
+            f.write("invalid json {")
+
+        repo = FileSystemModelRepository(models_dir=str(models_dir))
+        version = ModelVersion.from_string("v5")
+
+        # Should return None instead of crashing
+        info = repo.get_model_info(version)
+        assert info is None
+
+    # Integration tests
+    def test_repository_with_real_v4_model_path(self):
+        """Test repository with actual v4 model path."""
+        # Use actual backend models directory
+        backend_dir = Path(__file__).parents[4]  # Go up from tests/unit/infrastructure/model
+        models_dir = backend_dir / "models"
+
+        if not models_dir.exists():
+            pytest.skip("Models directory not found")
+
+        repo = FileSystemModelRepository(models_dir=str(models_dir))
+
+        # Test v4 model exists
+        v4_version = ModelVersion.from_string("v4")
+        assert repo.model_exists(v4_version)
+
+        # Test get model info
+        info = repo.get_model_info(v4_version)
+        assert info is not None
+        assert info.feature_dimension == 210
+
+    def test_full_repository_workflow(self, repository: FileSystemModelRepository):
+        """Test complete workflow: check exists, get info, load model."""
+        version = ModelVersion.from_string("v4")
+
+        # Check exists
+        assert repository.model_exists(version)
+
+        # Get info
+        info = repository.get_model_info(version)
+        assert info is not None
+        assert info.version == version
+
+        # Load model
+        model = repository.load_model(version)
+        assert model is not None
+
+        # Model should be cached
+        model2 = repository.load_model(version)
+        assert model is model2

@@ -6,19 +6,20 @@ including TracerProvider setup, instrumentation, and helper functions.
 """
 
 import os
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
 
 from app.utils.observability import (
-    setup_tracing,
-    get_current_trace_id,
     get_current_span_id,
+    get_current_trace_id,
     get_tracer,
+    setup_tracing,
 )
 
 
+@pytest.mark.unit
 class TestSetupTracing:
     """Test cases for setup_tracing function."""
 
@@ -30,7 +31,9 @@ class TestSetupTracing:
             with patch("app.utils.observability.TracerProvider") as mock_provider:
                 with patch("app.utils.observability.BatchSpanProcessor"):
                     with patch("app.utils.observability.trace.set_tracer_provider"):
-                        with patch("app.utils.observability.FastAPIInstrumentor") as mock_instrumentor:
+                        with patch(
+                            "app.utils.observability.FastAPIInstrumentor"
+                        ) as mock_instrumentor:
                             with patch("app.utils.observability.HTTPXClientInstrumentor"):
                                 with patch("app.utils.observability.LoggingInstrumentor"):
                                     setup_tracing(
@@ -100,7 +103,9 @@ class TestSetupTracing:
             with patch("app.utils.observability.TracerProvider"):
                 with patch("app.utils.observability.BatchSpanProcessor"):
                     with patch("app.utils.observability.trace.set_tracer_provider"):
-                        with patch("app.utils.observability.FastAPIInstrumentor") as mock_instrumentor:
+                        with patch(
+                            "app.utils.observability.FastAPIInstrumentor"
+                        ) as mock_instrumentor:
                             with patch("app.utils.observability.HTTPXClientInstrumentor"):
                                 with patch("app.utils.observability.LoggingInstrumentor"):
                                     setup_tracing(
@@ -120,7 +125,9 @@ class TestSetupTracing:
                 with patch("app.utils.observability.BatchSpanProcessor"):
                     with patch("app.utils.observability.trace.set_tracer_provider"):
                         with patch("app.utils.observability.FastAPIInstrumentor"):
-                            with patch("app.utils.observability.HTTPXClientInstrumentor") as mock_httpx:
+                            with patch(
+                                "app.utils.observability.HTTPXClientInstrumentor"
+                            ) as mock_httpx:
                                 with patch("app.utils.observability.LoggingInstrumentor"):
                                     setup_tracing(
                                         app=app,
@@ -140,7 +147,9 @@ class TestSetupTracing:
                     with patch("app.utils.observability.trace.set_tracer_provider"):
                         with patch("app.utils.observability.FastAPIInstrumentor"):
                             with patch("app.utils.observability.HTTPXClientInstrumentor"):
-                                with patch("app.utils.observability.LoggingInstrumentor") as mock_logging:
+                                with patch(
+                                    "app.utils.observability.LoggingInstrumentor"
+                                ) as mock_logging:
                                     setup_tracing(
                                         app=app,
                                         service_name="test-service",
@@ -160,7 +169,9 @@ class TestSetupTracing:
                     with patch("app.utils.observability.trace.set_tracer_provider"):
                         with patch("app.utils.observability.FastAPIInstrumentor"):
                             with patch("app.utils.observability.HTTPXClientInstrumentor"):
-                                with patch("app.utils.observability.LoggingInstrumentor") as mock_logging:
+                                with patch(
+                                    "app.utils.observability.LoggingInstrumentor"
+                                ) as mock_logging:
                                     setup_tracing(
                                         app=app,
                                         service_name="test-service",
@@ -171,6 +182,7 @@ class TestSetupTracing:
                                     mock_logging.return_value.instrument.assert_not_called()
 
 
+@pytest.mark.unit
 class TestGetCurrentTraceId:
     """Test cases for get_current_trace_id function."""
 
@@ -208,6 +220,7 @@ class TestGetCurrentTraceId:
         assert trace_id is None
 
 
+@pytest.mark.unit
 class TestGetCurrentSpanId:
     """Test cases for get_current_span_id function."""
 
@@ -245,6 +258,7 @@ class TestGetCurrentSpanId:
         assert span_id is None
 
 
+@pytest.mark.unit
 class TestGetTracer:
     """Test cases for get_tracer function."""
 
@@ -279,6 +293,7 @@ class TestGetTracer:
             mock_tracer.start_as_current_span.assert_called_once_with("test-span")
 
 
+@pytest.mark.unit
 class TestObservabilityIntegration:
     """Integration tests for observability module."""
 

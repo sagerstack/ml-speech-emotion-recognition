@@ -7,8 +7,8 @@ and generate coverage reports.
 """
 
 import argparse
-import sys
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -30,13 +30,15 @@ def run_unit_tests(coverage: bool = True, verbose: bool = False) -> int:
         cmd.append("-v")
 
     if coverage:
-        cmd.extend([
-            "--cov=app",
-            "--cov-report=term-missing",
-            "--cov-report=html:htmlcov/unit",
-            "--cov-report=xml:coverage-unit.xml",
-            "--cov-fail-under=80"
-        ])
+        cmd.extend(
+            [
+                "--cov=app",
+                "--cov-report=term-missing",
+                "--cov-report=html:htmlcov/unit",
+                "--cov-report=xml:coverage-unit.xml",
+                "--cov-fail-under=80",
+            ]
+        )
 
     return run_command(cmd)
 
@@ -49,12 +51,14 @@ def run_integration_tests(coverage: bool = True, verbose: bool = False) -> int:
         cmd.append("-v")
 
     if coverage:
-        cmd.extend([
-            "--cov=app",
-            "--cov-report=term-missing",
-            "--cov-report=html:htmlcov/integration",
-            "--cov-report=xml:coverage-integration.xml"
-        ])
+        cmd.extend(
+            [
+                "--cov=app",
+                "--cov-report=term-missing",
+                "--cov-report=html:htmlcov/integration",
+                "--cov-report=xml:coverage-integration.xml",
+            ]
+        )
 
     return run_command(cmd)
 
@@ -67,13 +71,15 @@ def run_all_tests(coverage: bool = True, verbose: bool = False) -> int:
         cmd.append("-v")
 
     if coverage:
-        cmd.extend([
-            "--cov=app",
-            "--cov-report=term-missing",
-            "--cov-report=html:htmlcov",
-            "--cov-report=xml:coverage.xml",
-            "--cov-fail-under=90"
-        ])
+        cmd.extend(
+            [
+                "--cov=app",
+                "--cov-report=term-missing",
+                "--cov-report=html:htmlcov",
+                "--cov-report=xml:coverage.xml",
+                "--cov-fail-under=90",
+            ]
+        )
 
     return run_command(cmd)
 
@@ -86,11 +92,7 @@ def run_specific_tests(test_path: str, coverage: bool = False, verbose: bool = F
         cmd.append("-v")
 
     if coverage:
-        cmd.extend([
-            "--cov=app",
-            "--cov-report=term-missing",
-            "--cov-report=html:htmlcov"
-        ])
+        cmd.extend(["--cov=app", "--cov-report=term-missing", "--cov-report=html:htmlcov"])
 
     return run_command(cmd)
 
@@ -108,11 +110,13 @@ def run_performance_tests(verbose: bool = False) -> int:
 def generate_coverage_report() -> int:
     """Generate detailed coverage report."""
     cmd = [
-        "poetry", "run", "pytest",
+        "poetry",
+        "run",
+        "pytest",
         "--cov=app",
         "--cov-report=html:htmlcov",
         "--cov-report=xml",
-        "--cov-report=term-missing"
+        "--cov-report=term-missing",
     ]
 
     return run_command(cmd)
@@ -120,11 +124,7 @@ def generate_coverage_report() -> int:
 
 def check_coverage_threshold(threshold: float = 90.0) -> int:
     """Check if coverage meets threshold."""
-    cmd = [
-        "poetry", "run", "pytest",
-        "--cov=app",
-        "--cov-fail-under", str(threshold)
-    ]
+    cmd = ["poetry", "run", "pytest", "--cov=app", "--cov-fail-under", str(threshold)]
 
     return run_command(cmd)
 
@@ -151,7 +151,9 @@ def clean_coverage() -> int:
 
 def main() -> int:
     """Main function."""
-    parser = argparse.ArgumentParser(description="Test runner for ML Speech Emotion Recognition API")
+    parser = argparse.ArgumentParser(
+        description="Test runner for ML Speech Emotion Recognition API"
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -195,6 +197,7 @@ def main() -> int:
     backend_dir = Path(__file__).parent.parent
     if not Path.cwd().samefile(backend_dir):
         import os
+
         os.chdir(backend_dir)
         print(f"Changed to directory: {backend_dir}")
 

@@ -17,12 +17,13 @@ V4 Model Details:
 Focus: Application flow correctness, NOT model accuracy.
 """
 
-import sys
 import importlib.util
 from pathlib import Path
 
 # Dynamically import feature extractor to avoid path conflicts
-FEATURE_EXTRACTOR_PATH = Path(__file__).resolve().parents[2] / "models" / "v4" / "feature_extractor.py"
+FEATURE_EXTRACTOR_PATH = (
+    Path(__file__).resolve().parents[2] / "models" / "v4" / "feature_extractor.py"
+)
 
 spec = importlib.util.spec_from_file_location("v4_feature_extractor", FEATURE_EXTRACTOR_PATH)
 v4_extractor_module = importlib.util.module_from_spec(spec)
@@ -30,11 +31,12 @@ spec.loader.exec_module(v4_extractor_module)
 extract_features = v4_extractor_module.extract_features
 
 import io
+
 import numpy as np
 import pytest
 import soundfile as sf
 
-from app.services.model_registry import ModelRegistry, get_registry
+from app.infrastructure.ml.model_registry import ModelRegistry, get_registry
 
 
 @pytest.fixture
@@ -48,7 +50,9 @@ def registry():
 @pytest.fixture
 def crema_d_audio_path():
     """Path to CREMA-D dataset."""
-    return Path("/Users/sagarpratapsingh/dev/sagerstack/ml-speech-emotion-recognition/data/AudioWAV")
+    return Path(
+        "/Users/sagarpratapsingh/dev/sagerstack/ml-speech-emotion-recognition/data/AudioWAV"
+    )
 
 
 @pytest.fixture
@@ -63,7 +67,7 @@ def crema_d_sample(crema_d_audio_path):
     # Use the first available file
     audio_file = audio_files[0]
 
-    with open(audio_file, 'rb') as f:
+    with open(audio_file, "rb") as f:
         audio_bytes = f.read()
 
     return audio_bytes, audio_file.name
@@ -94,8 +98,12 @@ class TestV4FullInferencePipeline:
 
         # Validate all required fields exist
         required_fields = [
-            "emotion", "confidence", "all_probabilities",
-            "model_version", "model_type", "feature_dimension"
+            "emotion",
+            "confidence",
+            "all_probabilities",
+            "model_version",
+            "model_type",
+            "feature_dimension",
         ]
         for field in required_fields:
             assert field in result, f"Result should have {field} field"
@@ -107,8 +115,7 @@ class TestV4FullInferencePipeline:
         valid_emotions = ["angry", "disgust", "fear", "happy", "neutral", "sad"]
         emotion = result["emotion"]
 
-        assert emotion in valid_emotions, \
-            f"Emotion '{emotion}' should be one of {valid_emotions}"
+        assert emotion in valid_emotions, f"Emotion '{emotion}' should be one of {valid_emotions}"
 
     def test_prediction_confidence_valid_range(self, registry, sample_audio_file):
         """Test that confidence score is in valid [0, 1] range."""
@@ -116,10 +123,8 @@ class TestV4FullInferencePipeline:
 
         confidence = result["confidence"]
 
-        assert isinstance(confidence, (float, np.floating)), \
-            "Confidence should be a float"
-        assert 0.0 <= confidence <= 1.0, \
-            f"Confidence {confidence} should be in range [0, 1]"
+        assert isinstance(confidence, (float, np.floating)), "Confidence should be a float"
+        assert 0.0 <= confidence <= 1.0, f"Confidence {confidence} should be in range [0, 1]"
 
     def test_prediction_all_probabilities_valid(self, registry, sample_audio_file):
         """Test that all_probabilities dict is valid.
@@ -139,15 +144,16 @@ class TestV4FullInferencePipeline:
 
         # The predicted emotion should be in all_probabilities
         predicted_emotion = result["emotion"]
-        assert predicted_emotion in all_probs, \
-            f"Predicted emotion {predicted_emotion} should be in all_probabilities"
+        assert (
+            predicted_emotion in all_probs
+        ), f"Predicted emotion {predicted_emotion} should be in all_probabilities"
 
         # Check all probabilities are valid numbers
         for emotion, prob in all_probs.items():
-            assert isinstance(prob, (float, np.floating)), \
-                f"Probability for {emotion} should be float"
-            assert 0.0 <= prob <= 1.0, \
-                f"Probability for {emotion} ({prob}) should be in [0, 1]"
+            assert isinstance(
+                prob, (float, np.floating)
+            ), f"Probability for {emotion} should be float"
+            assert 0.0 <= prob <= 1.0, f"Probability for {emotion} ({prob}) should be in [0, 1]"
 
     def test_prediction_probabilities_sum_to_one(self, registry, sample_audio_file):
         """Test that all probabilities sum to approximately 1.0."""
@@ -156,18 +162,18 @@ class TestV4FullInferencePipeline:
         all_probs = result["all_probabilities"]
         prob_sum = sum(all_probs.values())
 
-        assert 0.99 <= prob_sum <= 1.01, \
-            f"Probabilities should sum to ~1.0, got {prob_sum}"
+        assert 0.99 <= prob_sum <= 1.01, f"Probabilities should sum to ~1.0, got {prob_sum}"
 
     def test_prediction_metadata_correct(self, registry, sample_audio_file):
         """Test that prediction metadata is correct."""
         result = registry.predict("4", sample_audio_file, "test.wav")
 
         assert result["model_version"] == "4", "Model version should be '4'"
-        assert result["model_type"] == "Ultra Ensemble (Stacking + Extra Trees + Gradient Boosting + Majority Voting)", \
-            "Model type should be Ultra Ensemble"
-        assert result["feature_dimension"] == 210, \
-            "Feature dimension should be 210"
+        assert (
+            result["model_type"]
+            == "Ultra Ensemble (Stacking + Extra Trees + Gradient Boosting + Majority Voting)"
+        ), "Model type should be Ultra Ensemble"
+        assert result["feature_dimension"] == 210, "Feature dimension should be 210"
 
     def test_multiple_predictions_are_deterministic(self, registry, sample_audio_file):
         """Test that same audio produces same prediction (deterministic)."""
@@ -175,16 +181,16 @@ class TestV4FullInferencePipeline:
         result2 = registry.predict("4", sample_audio_file, "test.wav")
 
         # Predictions should be identical
-        assert result1["emotion"] == result2["emotion"], \
-            "Same audio should produce same emotion"
-        assert result1["confidence"] == result2["confidence"], \
-            "Same audio should produce same confidence"
+        assert result1["emotion"] == result2["emotion"], "Same audio should produce same emotion"
+        assert (
+            result1["confidence"] == result2["confidence"]
+        ), "Same audio should produce same confidence"
 
         # All probabilities should match
         for emotion in result1["all_probabilities"]:
-            assert result1["all_probabilities"][emotion] == \
-                   result2["all_probabilities"][emotion], \
-                f"Probability for {emotion} should be identical"
+            assert (
+                result1["all_probabilities"][emotion] == result2["all_probabilities"][emotion]
+            ), f"Probability for {emotion} should be identical"
 
 
 @pytest.mark.integration
@@ -206,14 +212,14 @@ class TestV4RealAudioInference:
 
         # Validate prediction values
         valid_emotions = ["angry", "disgust", "fear", "happy", "neutral", "sad"]
-        assert result["emotion"] in valid_emotions, \
-            f"Emotion should be valid, got {result['emotion']}"
-        assert 0.0 <= result["confidence"] <= 1.0, \
-            f"Confidence should be valid, got {result['confidence']}"
+        assert (
+            result["emotion"] in valid_emotions
+        ), f"Emotion should be valid, got {result['emotion']}"
+        assert (
+            0.0 <= result["confidence"] <= 1.0
+        ), f"Confidence should be valid, got {result['confidence']}"
 
-    def test_real_audio_produces_valid_features_and_prediction(
-        self, registry, crema_d_sample
-    ):
+    def test_real_audio_produces_valid_features_and_prediction(self, registry, crema_d_sample):
         """Test that real audio produces valid features and prediction."""
         audio_bytes, filename = crema_d_sample
 
@@ -228,9 +234,7 @@ class TestV4RealAudioInference:
         assert result["emotion"] is not None, "Should predict an emotion"
         assert result["confidence"] > 0.0, "Should have non-zero confidence"
 
-    def test_multiple_real_audio_files_all_produce_predictions(
-        self, registry, crema_d_audio_path
-    ):
+    def test_multiple_real_audio_files_all_produce_predictions(self, registry, crema_d_audio_path):
         """Test that multiple real audio files all produce valid predictions."""
         audio_files = list(crema_d_audio_path.glob("*.wav"))[:5]  # Test first 5 files
 
@@ -240,7 +244,7 @@ class TestV4RealAudioInference:
         predictions = []
 
         for audio_file in audio_files:
-            with open(audio_file, 'rb') as f:
+            with open(audio_file, "rb") as f:
                 audio_bytes = f.read()
 
             result = registry.predict("4", audio_bytes, audio_file.name)
@@ -252,17 +256,14 @@ class TestV4RealAudioInference:
             assert sum(result["all_probabilities"].values()) >= 0.99
 
         # Should have predictions for all files
-        assert len(predictions) == len(audio_files), \
-            "Should have predictions for all audio files"
+        assert len(predictions) == len(audio_files), "Should have predictions for all audio files"
 
 
 @pytest.mark.integration
 class TestV4RegistryPredictIntegration:
     """Test registry.predict() method integration."""
 
-    def test_registry_predict_handles_feature_extraction(
-        self, registry, sample_audio_file
-    ):
+    def test_registry_predict_handles_feature_extraction(self, registry, sample_audio_file):
         """Test that registry.predict() internally handles feature extraction."""
         # predict() should handle feature extraction internally
         result = registry.predict("4", sample_audio_file, "test.wav")
@@ -278,19 +279,17 @@ class TestV4RegistryPredictIntegration:
         with pytest.raises(ValueError, match="Feature extraction failed"):
             registry.predict("4", invalid_audio, "invalid.wav")
 
-    def test_registry_predict_with_different_filenames(
-        self, registry, sample_audio_file
-    ):
+    def test_registry_predict_with_different_filenames(self, registry, sample_audio_file):
         """Test that prediction works with different filename extensions."""
         filenames = ["test.wav", "test.mp3", "test.m4a", "audio.WAV"]
 
         for filename in filenames:
             result = registry.predict("4", sample_audio_file, filename)
 
-            assert result["emotion"] is not None, \
-                f"Should work with filename {filename}"
-            assert 0.0 <= result["confidence"] <= 1.0, \
-                f"Should produce valid confidence for {filename}"
+            assert result["emotion"] is not None, f"Should work with filename {filename}"
+            assert (
+                0.0 <= result["confidence"] <= 1.0
+            ), f"Should produce valid confidence for {filename}"
 
 
 @pytest.mark.integration
@@ -332,16 +331,17 @@ class TestV4PredictionConsistency:
 
         # All results should be identical
         for i in range(1, len(results)):
-            assert results[i]["emotion"] == results[0]["emotion"], \
-                "Emotion should be consistent"
-            assert results[i]["confidence"] == results[0]["confidence"], \
-                "Confidence should be consistent"
+            assert results[i]["emotion"] == results[0]["emotion"], "Emotion should be consistent"
+            assert (
+                results[i]["confidence"] == results[0]["confidence"]
+            ), "Confidence should be consistent"
 
             # Check all probabilities match
             for emotion in results[0]["all_probabilities"]:
-                assert results[i]["all_probabilities"][emotion] == \
-                       results[0]["all_probabilities"][emotion], \
-                    f"Probability for {emotion} should be consistent"
+                assert (
+                    results[i]["all_probabilities"][emotion]
+                    == results[0]["all_probabilities"][emotion]
+                ), f"Probability for {emotion} should be consistent"
 
     def test_different_audio_produces_predictions(self, registry):
         """Test that different audio samples all produce valid predictions."""
@@ -351,10 +351,12 @@ class TestV4PredictionConsistency:
         for freq in [220, 440, 880]:  # Different frequencies
             sample_rate = 22050
             duration = 3.0
-            audio_data = np.sin(2 * np.pi * freq * np.linspace(0, duration, int(sample_rate * duration)))
+            audio_data = np.sin(
+                2 * np.pi * freq * np.linspace(0, duration, int(sample_rate * duration))
+            )
 
             audio_buffer = io.BytesIO()
-            sf.write(audio_buffer, audio_data, sample_rate, format='WAV')
+            sf.write(audio_buffer, audio_data, sample_rate, format="WAV")
             audio_buffer.seek(0)
             audio_samples.append(audio_buffer.read())
 
@@ -375,19 +377,28 @@ class TestV4PredictionConsistency:
         durations = [3.5, 5.0, 10.0]
 
         for duration in durations:
-            audio_data = np.sin(2 * np.pi * 440 * np.linspace(0, duration, int(sample_rate * duration)))
+            audio_data = np.sin(
+                2 * np.pi * 440 * np.linspace(0, duration, int(sample_rate * duration))
+            )
 
             audio_buffer = io.BytesIO()
-            sf.write(audio_buffer, audio_data, sample_rate, format='WAV')
+            sf.write(audio_buffer, audio_data, sample_rate, format="WAV")
             audio_buffer.seek(0)
             audio_bytes = audio_buffer.read()
 
             result = registry.predict("4", audio_bytes, f"test_{duration}s.wav")
 
-            assert result["emotion"] in ["angry", "disgust", "fear", "happy", "neutral", "sad"], \
-                f"Duration {duration}s should produce valid emotion"
-            assert 0.0 <= result["confidence"] <= 1.0, \
-                f"Duration {duration}s should produce valid confidence"
+            assert result["emotion"] in [
+                "angry",
+                "disgust",
+                "fear",
+                "happy",
+                "neutral",
+                "sad",
+            ], f"Duration {duration}s should produce valid emotion"
+            assert (
+                0.0 <= result["confidence"] <= 1.0
+            ), f"Duration {duration}s should produce valid confidence"
 
 
 @pytest.mark.integration
@@ -434,7 +445,9 @@ class TestV4VsOtherVersionsComparison:
         assert v3_result["emotion"] in valid_emotions, "v3 should predict valid emotion"
         assert v4_result["emotion"] in valid_emotions, "v4 should predict valid emotion"
 
-    def test_v4_uses_same_features_as_v3_but_different_than_v1_and_v2(self, registry, sample_audio_file):
+    def test_v4_uses_same_features_as_v3_but_different_than_v1_and_v2(
+        self, registry, sample_audio_file
+    ):
         """Test that v4 uses same features as v3, but different from v1 and v2."""
         v1_result = registry.predict("1", sample_audio_file, "test.wav")
         v2_result = registry.predict("2", sample_audio_file, "test.wav")
@@ -453,9 +466,13 @@ class TestV4VsOtherVersionsComparison:
         v4_info = registry.get_model_info("4")
 
         # v3 and v4 should have identical architecture
-        assert v3_info["model_type"] == v4_info["model_type"], \
-            "v3 and v4 should have same model type"
-        assert v4_info["model_type"] == "Ultra Ensemble (Stacking + Extra Trees + Gradient Boosting + Majority Voting)"
+        assert (
+            v3_info["model_type"] == v4_info["model_type"]
+        ), "v3 and v4 should have same model type"
+        assert (
+            v4_info["model_type"]
+            == "Ultra Ensemble (Stacking + Extra Trees + Gradient Boosting + Majority Voting)"
+        )
 
     def test_v4_has_different_model_architecture_than_v1_and_v2(self, registry):
         """Test that v4 has different architecture than v1 and v2."""
@@ -463,13 +480,18 @@ class TestV4VsOtherVersionsComparison:
         v2_info = registry.get_model_info("2")
         v4_info = registry.get_model_info("4")
 
-        assert v1_info["model_type"] != v4_info["model_type"], \
-            "v1 and v4 should have different model types"
-        assert v2_info["model_type"] != v4_info["model_type"], \
-            "v2 and v4 should have different model types"
+        assert (
+            v1_info["model_type"] != v4_info["model_type"]
+        ), "v1 and v4 should have different model types"
+        assert (
+            v2_info["model_type"] != v4_info["model_type"]
+        ), "v2 and v4 should have different model types"
         assert v1_info["model_type"] == "DecisionTreeClassifier"
         assert v2_info["model_type"] == "Pipeline (StandardScaler + RFE + SVC)"
-        assert v4_info["model_type"] == "Ultra Ensemble (Stacking + Extra Trees + Gradient Boosting + Majority Voting)"
+        assert (
+            v4_info["model_type"]
+            == "Ultra Ensemble (Stacking + Extra Trees + Gradient Boosting + Majority Voting)"
+        )
 
     def test_v4_and_v3_produce_most_features(self, registry, sample_audio_file):
         """Test that v4 and v3 produce the most features among all versions."""
@@ -499,13 +521,13 @@ class TestV4VsOtherVersionsComparison:
 
         # Check that dataset information is available and correct
         assert "dataset" in v4_info, "v4 should have dataset information"
-        assert v4_info["dataset"] == "CREMA-D + RAVDESS", \
-            "v4 should be trained on CREMA-D + RAVDESS"
+        assert (
+            v4_info["dataset"] == "CREMA-D + RAVDESS"
+        ), "v4 should be trained on CREMA-D + RAVDESS"
 
         # v3 should only be trained on CREMA-D
         assert "dataset" in v3_info, "v3 should have dataset information"
-        assert v3_info["dataset"] == "CREMA-D", \
-            "v3 should be trained on CREMA-D only"
+        assert v3_info["dataset"] == "CREMA-D", "v3 should be trained on CREMA-D only"
 
     def test_v4_predictions_may_differ_from_v3_despite_same_architecture(
         self, registry, sample_audio_file

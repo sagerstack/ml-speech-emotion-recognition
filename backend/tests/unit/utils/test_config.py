@@ -6,13 +6,15 @@ and configuration validation logic.
 """
 
 import os
-import pytest
 from unittest.mock import patch
+
+import pytest
 from pydantic import ValidationError
 
 from app.utils.config import Settings, get_settings
 
 
+@pytest.mark.unit
 class TestSettings:
     """Test cases for Settings class."""
 
@@ -29,7 +31,9 @@ class TestSettings:
         assert settings.host == "0.0.0.0"
         assert settings.port == 8000
         assert settings.aws_region == "us-east-1"  # Set by test_environment fixture
-        assert settings.sagemaker_endpoint_name == "test-endpoint"  # Set by test_environment fixture
+        assert (
+            settings.sagemaker_endpoint_name == "test-endpoint"
+        )  # Set by test_environment fixture
         assert settings.max_upload_size_mb == 30
         assert settings.max_audio_duration_seconds == 30
         assert settings.supported_formats == ["wav", "mp3", "m4a"]
@@ -47,7 +51,7 @@ class TestSettings:
             "SAGEMAKER_ENDPOINT_NAME": "prod-endpoint",
             "MAX_UPLOAD_SIZE_MB": "50",
             "MAX_AUDIO_DURATION_SECONDS": "60",
-            "PROMETHEUS_ENABLED": "false"
+            "PROMETHEUS_ENABLED": "false",
         }
 
         with patch.dict(os.environ, env_vars):
@@ -71,16 +75,14 @@ class TestSettings:
             "http://localhost:3000",
             "http://localhost:8501",
             "http://127.0.0.1:3000",
-            "http://127.0.0.1:8501"
+            "http://127.0.0.1:8501",
         ]
 
         assert settings.cors_origins == expected_origins
 
     def test_cors_origins_from_environment(self) -> None:
         """Test loading CORS origins from environment."""
-        env_vars = {
-            "CORS_ORIGINS": '["https://example.com", "https://app.example.com"]'
-        }
+        env_vars = {"CORS_ORIGINS": '["https://example.com", "https://app.example.com"]'}
 
         with patch.dict(os.environ, env_vars):
             settings = Settings()
@@ -100,7 +102,7 @@ class TestSettings:
         env_vars = {
             "SECRET_KEY": "production-secret-key",
             "ALGORITHM": "RS256",
-            "ACCESS_TOKEN_EXPIRE_MINUTES": "60"
+            "ACCESS_TOKEN_EXPIRE_MINUTES": "60",
         }
 
         with patch.dict(os.environ, env_vars):
@@ -119,10 +121,7 @@ class TestSettings:
 
     def test_s3_configuration_from_environment(self) -> None:
         """Test loading S3 configuration from environment."""
-        env_vars = {
-            "S3_BUCKET_NAME": "test-audio-bucket",
-            "S3_TEMP_PREFIX": "uploads/temp/"
-        }
+        env_vars = {"S3_BUCKET_NAME": "test-audio-bucket", "S3_TEMP_PREFIX": "uploads/temp/"}
 
         with patch.dict(os.environ, env_vars):
             settings = Settings()
@@ -139,10 +138,7 @@ class TestSettings:
 
     def test_performance_configuration_from_environment(self) -> None:
         """Test loading performance configuration from environment."""
-        env_vars = {
-            "MAX_CONCURRENT_REQUESTS": "100",
-            "REQUEST_TIMEOUT_SECONDS": "120"
-        }
+        env_vars = {"MAX_CONCURRENT_REQUESTS": "100", "REQUEST_TIMEOUT_SECONDS": "120"}
 
         with patch.dict(os.environ, env_vars):
             settings = Settings()
@@ -159,9 +155,7 @@ class TestSettings:
 
     def test_supported_formats_from_environment(self) -> None:
         """Test loading supported formats from environment."""
-        env_vars = {
-            "SUPPORTED_FORMATS": '["wav", "mp3", "flac", "ogg"]'
-        }
+        env_vars = {"SUPPORTED_FORMATS": '["wav", "mp3", "flac", "ogg"]'}
 
         with patch.dict(os.environ, env_vars):
             settings = Settings()
@@ -197,10 +191,7 @@ class TestSettings:
 
     def test_case_insensitive_environment_variables(self) -> None:
         """Test that environment variables are case insensitive."""
-        env_vars = {
-            "app_name": "Test App Lowercase",
-            "DEBUG": "true"
-        }
+        env_vars = {"app_name": "Test App Lowercase", "DEBUG": "true"}
 
         with patch.dict(os.environ, env_vars):
             settings = Settings()
@@ -210,10 +201,7 @@ class TestSettings:
 
     def test_extra_fields_ignored(self) -> None:
         """Test that extra fields in environment are ignored."""
-        env_vars = {
-            "UNKNOWN_FIELD": "some_value",
-            "ANOTHER_UNKNOWN": "another_value"
-        }
+        env_vars = {"UNKNOWN_FIELD": "some_value", "ANOTHER_UNKNOWN": "another_value"}
 
         with patch.dict(os.environ, env_vars):
             settings = Settings()
@@ -227,10 +215,14 @@ class TestSettings:
         # Test that env_ignore_empty=True ignores empty strings and uses defaults
         # We set only specific empty variables while preserving the test_environment fixture values
 
-        with patch.dict(os.environ, {
-            "APP_NAME": "",  # Empty string
-            "DEBUG": "true"   # Keep this as true from test_environment fixture
-        }, clear=False):
+        with patch.dict(
+            os.environ,
+            {
+                "APP_NAME": "",  # Empty string
+                "DEBUG": "true",  # Keep this as true from test_environment fixture
+            },
+            clear=False,
+        ):
             settings = Settings()
 
             # With env_ignore_empty=True, empty APP_NAME should be ignored and default used
@@ -241,12 +233,14 @@ class TestSettings:
     def test_env_file_loading(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test loading configuration from .env file."""
         env_file = tmp_path / ".env"
-        env_file.write_text("""
+        env_file.write_text(
+            """
 APP_NAME=Test from .env file
 DEBUG=true
 PORT=9999
 AWS_REGION=eu-central-1
-        """)
+        """
+        )
 
         # Clear environment variables that might interfere
         with monkeypatch.context() as m:
@@ -268,6 +262,7 @@ AWS_REGION=eu-central-1
                 os.chdir(original_cwd)
 
 
+@pytest.mark.unit
 class TestGetSettings:
     """Test cases for get_settings function."""
 
@@ -283,6 +278,7 @@ class TestGetSettings:
         """Test that get_settings creates instance if none exists."""
         # Reset the global settings instance
         import app.utils.config
+
         app.utils.config._settings = None
 
         settings = get_settings()
@@ -294,6 +290,7 @@ class TestGetSettings:
         """Test that modifications to the returned settings are preserved."""
         # Reset the global settings instance
         import app.utils.config
+
         app.utils.config._settings = None
 
         settings1 = get_settings()
@@ -314,6 +311,7 @@ class TestGetSettings:
 
         # Reset the global settings instance
         import app.utils.config
+
         app.utils.config._settings = None
 
         with patch.dict(os.environ, env_vars):
@@ -322,6 +320,7 @@ class TestGetSettings:
             assert settings.app_name == "Environment Override"
 
 
+@pytest.mark.unit
 class TestSettingsValidation:
     """Test cases for settings validation."""
 
@@ -425,6 +424,7 @@ class TestSettingsValidation:
                     Settings()
 
 
+@pytest.mark.unit
 class TestSettingsEdgeCases:
     """Test edge cases for settings configuration."""
 
@@ -457,10 +457,7 @@ class TestSettingsEdgeCases:
 
     def test_whitespace_handling(self) -> None:
         """Test handling of whitespace in string values."""
-        env_vars = {
-            "APP_NAME": "  spaced name  ",
-            "AWS_REGION": "\tus-east-1\n"
-        }
+        env_vars = {"APP_NAME": "  spaced name  ", "AWS_REGION": "\tus-east-1\n"}
 
         with patch.dict(os.environ, env_vars):
             settings = Settings()
@@ -468,22 +465,25 @@ class TestSettingsEdgeCases:
             assert settings.app_name.strip() == "spaced name"
             assert settings.aws_region.strip() == "us-east-1"
 
-    @pytest.mark.parametrize("config_field,expected_type", [
-        ("app_name", str),
-        ("app_version", str),
-        ("debug", bool),
-        ("port", int),
-        ("max_upload_size_mb", int),
-        ("max_audio_duration_seconds", int),
-        ("supported_formats", list),
-        ("cors_origins", list),
-        ("prometheus_enabled", bool),
-        ("metrics_port", int),
-        ("s3_bucket_name", (str, type(None))),
-        ("secret_key", str),
-        ("algorithm", str),
-        ("access_token_expire_minutes", int),
-    ])
+    @pytest.mark.parametrize(
+        "config_field,expected_type",
+        [
+            ("app_name", str),
+            ("app_version", str),
+            ("debug", bool),
+            ("port", int),
+            ("max_upload_size_mb", int),
+            ("max_audio_duration_seconds", int),
+            ("supported_formats", list),
+            ("cors_origins", list),
+            ("prometheus_enabled", bool),
+            ("metrics_port", int),
+            ("s3_bucket_name", (str, type(None))),
+            ("secret_key", str),
+            ("algorithm", str),
+            ("access_token_expire_minutes", int),
+        ],
+    )
     def test_field_types(self, config_field, expected_type) -> None:
         """Test that configuration fields have expected types."""
         settings = Settings()

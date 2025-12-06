@@ -5,15 +5,19 @@ Uses Pydantic Settings for environment-based configuration with proper defaults.
 Designed for local development first, then AWS deployment.
 """
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings with environment variable support"""
 
     model_config = SettingsConfigDict(
-        env_file=".env.local", env_file_encoding="utf-8", case_sensitive=False, extra="ignore", env_ignore_empty=True
+        env_file=".env.local",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        env_ignore_empty=True,
     )
 
     # Application Configuration
@@ -59,6 +63,7 @@ class Settings(BaseSettings):
     monitoring_buffer_max_records: int = 500
     monitoring_auto_report_threshold: int = 100
     evidently_dashboard_url: str | None = None
+    enable_inference_monitoring_by_default: bool = False
 
     # CORS Configuration (for local development)
     cors_origins: list[str] = [
@@ -68,57 +73,59 @@ class Settings(BaseSettings):
         "http://127.0.0.1:8501",
     ]
 
-    
-    @field_validator('request_timeout_seconds')
+    # Audio Features Feature Flags
+    ENABLE_INFERENCE_AUDIO_FEATURES: bool = False
+    LOG_AUDIO_FEATURES_METRICS: bool = True
+
+    @field_validator("request_timeout_seconds")
     @classmethod
     def validate_timeout(cls, v):
         if v <= 0:
-            raise ValueError('Request timeout must be positive')
+            raise ValueError("Request timeout must be positive")
         return v
 
-    @field_validator('max_upload_size_mb')
+    @field_validator("max_upload_size_mb")
     @classmethod
     def validate_upload_size(cls, v):
         if v <= 0:
-            raise ValueError('Max upload size must be positive')
+            raise ValueError("Max upload size must be positive")
         return v
 
-    @field_validator('max_audio_duration_seconds')
+    @field_validator("max_audio_duration_seconds")
     @classmethod
     def validate_audio_duration(cls, v):
         if v <= 0:
-            raise ValueError('Max audio duration must be positive')
+            raise ValueError("Max audio duration must be positive")
         return v
 
-    @field_validator('max_concurrent_requests')
+    @field_validator("max_concurrent_requests")
     @classmethod
     def validate_concurrent_requests(cls, v):
         if v <= 0:
-            raise ValueError('Max concurrent requests must be positive')
+            raise ValueError("Max concurrent requests must be positive")
         return v
 
-    @field_validator('monitoring_buffer_max_records', 'monitoring_auto_report_threshold')
+    @field_validator("monitoring_buffer_max_records", "monitoring_auto_report_threshold")
     @classmethod
     def validate_monitoring_thresholds(cls, v):
         if v <= 0:
-            raise ValueError('Monitoring thresholds must be positive')
+            raise ValueError("Monitoring thresholds must be positive")
         return v
 
-    @field_validator('secret_key')
+    @field_validator("secret_key")
     @classmethod
     def validate_secret_key(cls, v):
         if not v or v.strip() == "":
-            raise ValueError('SECRET_KEY environment variable must be set and non-empty')
+            raise ValueError("SECRET_KEY environment variable must be set and non-empty")
         return v
 
-    @field_validator('access_token_expire_minutes')
+    @field_validator("access_token_expire_minutes")
     @classmethod
     def validate_token_expiry(cls, v):
         if v <= 0:
-            raise ValueError('Access token expiry must be positive')
+            raise ValueError("Access token expiry must be positive")
         return v
 
-    
 
 # Global settings instance
 _settings: Settings | None = None

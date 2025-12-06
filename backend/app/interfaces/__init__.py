@@ -6,8 +6,8 @@ for various components in the system.
 """
 
 from app.interfaces.feature_extractor import (
-    FeatureExtractorProtocol,
     FeatureExtractorFunction,
+    FeatureExtractorProtocol,
     validate_feature_extractor,
     validate_feature_output,
 )

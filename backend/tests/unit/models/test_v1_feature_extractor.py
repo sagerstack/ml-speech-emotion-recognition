@@ -11,13 +11,14 @@ Tests cover:
 - Deterministic output verification
 """
 
-import sys
 import importlib.util
 from pathlib import Path
 
 # Dynamically import feature extractor to avoid path conflicts
 # (tests/unit/models conflicts with backend/models in sys.path)
-FEATURE_EXTRACTOR_PATH = Path(__file__).resolve().parents[3] / "models" / "v1" / "feature_extractor.py"
+FEATURE_EXTRACTOR_PATH = (
+    Path(__file__).resolve().parents[3] / "models" / "v1" / "feature_extractor.py"
+)
 
 spec = importlib.util.spec_from_file_location("v1_feature_extractor", FEATURE_EXTRACTOR_PATH)
 v1_extractor_module = importlib.util.module_from_spec(spec)
@@ -25,10 +26,10 @@ spec.loader.exec_module(v1_extractor_module)
 extract_features = v1_extractor_module.extract_features
 
 import io
+
 import numpy as np
 import pytest
 import soundfile as sf
-import librosa
 
 
 class TestV1FeatureExtractorValidInput:
@@ -48,10 +49,8 @@ class TestV1FeatureExtractorValidInput:
         """Test that extracted features have exactly 162 dimensions."""
         features = extract_features(sample_audio_file, "test.wav")
 
-        assert features.shape == (162,), \
-            f"Expected feature shape (162,), got {features.shape}"
-        assert len(features) == 162, \
-            f"Expected 162 features, got {len(features)}"
+        assert features.shape == (162,), f"Expected feature shape (162,), got {features.shape}"
+        assert len(features) == 162, f"Expected 162 features, got {len(features)}"
 
     @pytest.mark.parametrize("audio_format", ["wav", "mp3", "m4a"])
     def test_supports_multiple_audio_formats(self, sample_audio_file, audio_format):
@@ -59,8 +58,9 @@ class TestV1FeatureExtractorValidInput:
         filename = f"test.{audio_format}"
         features = extract_features(sample_audio_file, filename)
 
-        assert features.shape == (162,), \
-            f"Failed for format {audio_format}: expected (162,), got {features.shape}"
+        assert features.shape == (
+            162,
+        ), f"Failed for format {audio_format}: expected (162,), got {features.shape}"
 
     def test_deterministic_output_same_audio(self, sample_audio_file):
         """Test that same audio produces identical features (deterministic)."""
@@ -68,9 +68,7 @@ class TestV1FeatureExtractorValidInput:
         features2 = extract_features(sample_audio_file, "test.wav")
 
         np.testing.assert_array_almost_equal(
-            features1, features2,
-            decimal=10,
-            err_msg="Same audio should produce identical features"
+            features1, features2, decimal=10, err_msg="Same audio should produce identical features"
         )
 
 
@@ -132,8 +130,7 @@ class TestV1FeatureComponents:
         mel_count = 128
 
         total = zcr_count + chroma_count + mfcc_count + rms_count + mel_count
-        assert total == 162, \
-            f"Feature components should sum to 162, got {total}"
+        assert total == 162, f"Feature components should sum to 162, got {total}"
 
 
 class TestV1FeatureExtractorInvalidInput:
@@ -173,7 +170,7 @@ class TestV1FeatureExtractorEdgeCases:
 
         # Convert to WAV bytes
         audio_buffer = io.BytesIO()
-        sf.write(audio_buffer, silent_audio, sample_rate, format='WAV')
+        sf.write(audio_buffer, silent_audio, sample_rate, format="WAV")
         audio_buffer.seek(0)
         audio_bytes = audio_buffer.read()
 
@@ -196,7 +193,7 @@ class TestV1FeatureExtractorEdgeCases:
         audio_data = np.sin(2 * np.pi * 440 * np.linspace(0, duration, int(sample_rate * duration)))
 
         audio_buffer = io.BytesIO()
-        sf.write(audio_buffer, audio_data, sample_rate, format='WAV')
+        sf.write(audio_buffer, audio_data, sample_rate, format="WAV")
         audio_buffer.seek(0)
         audio_bytes = audio_buffer.read()
 
@@ -204,8 +201,9 @@ class TestV1FeatureExtractorEdgeCases:
         # Should not raise error, but load less than 2.5s
         features = extract_features(audio_bytes, "short.wav")
 
-        assert features.shape == (162,), \
-            "Short audio should still produce 162 features (librosa pads or uses available)"
+        assert features.shape == (
+            162,
+        ), "Short audio should still produce 162 features (librosa pads or uses available)"
 
     def test_very_long_audio_uses_only_segment(self):
         """Test that long audio uses only the 2.5s segment from offset 0.6s."""
@@ -215,7 +213,7 @@ class TestV1FeatureExtractorEdgeCases:
         audio_data = np.sin(2 * np.pi * 440 * np.linspace(0, duration, int(sample_rate * duration)))
 
         audio_buffer = io.BytesIO()
-        sf.write(audio_buffer, audio_data, sample_rate, format='WAV')
+        sf.write(audio_buffer, audio_data, sample_rate, format="WAV")
         audio_buffer.seek(0)
         audio_bytes = audio_buffer.read()
 
@@ -228,7 +226,7 @@ class TestV1FeatureExtractorEdgeCases:
         audio_data2[start_idx:] = np.random.randn(len(audio_data2) - start_idx)
 
         audio_buffer2 = io.BytesIO()
-        sf.write(audio_buffer2, audio_data2, sample_rate, format='WAV')
+        sf.write(audio_buffer2, audio_data2, sample_rate, format="WAV")
         audio_buffer2.seek(0)
         audio_bytes2 = audio_buffer2.read()
 
@@ -236,9 +234,7 @@ class TestV1FeatureExtractorEdgeCases:
 
         # Features should be identical since only 0.6-3.1s segment is used
         np.testing.assert_array_almost_equal(
-            features1, features2,
-            decimal=5,
-            err_msg="Features should be identical for same segment"
+            features1, features2, decimal=5, err_msg="Features should be identical for same segment"
         )
 
     def test_mono_vs_stereo_audio(self):
@@ -249,14 +245,14 @@ class TestV1FeatureExtractorEdgeCases:
         # Create mono audio
         mono_audio = np.sin(2 * np.pi * 440 * np.linspace(0, duration, int(sample_rate * duration)))
         mono_buffer = io.BytesIO()
-        sf.write(mono_buffer, mono_audio, sample_rate, format='WAV')
+        sf.write(mono_buffer, mono_audio, sample_rate, format="WAV")
         mono_buffer.seek(0)
         mono_bytes = mono_buffer.read()
 
         # Create stereo audio (duplicate mono to both channels)
         stereo_audio = np.stack([mono_audio, mono_audio], axis=1)
         stereo_buffer = io.BytesIO()
-        sf.write(stereo_buffer, stereo_audio, sample_rate, format='WAV')
+        sf.write(stereo_buffer, stereo_audio, sample_rate, format="WAV")
         stereo_buffer.seek(0)
         stereo_bytes = stereo_buffer.read()
 
@@ -270,9 +266,10 @@ class TestV1FeatureExtractorEdgeCases:
 
         # Features should be very similar (librosa converts stereo to mono)
         np.testing.assert_array_almost_equal(
-            mono_features, stereo_features,
+            mono_features,
+            stereo_features,
             decimal=5,
-            err_msg="Mono and stereo (identical channels) should produce similar features"
+            err_msg="Mono and stereo (identical channels) should produce similar features",
         )
 
     def test_different_sample_rates_normalized(self):
@@ -287,16 +284,18 @@ class TestV1FeatureExtractorEdgeCases:
             )
 
             audio_buffer = io.BytesIO()
-            sf.write(audio_buffer, audio_data, sample_rate, format='WAV')
+            sf.write(audio_buffer, audio_data, sample_rate, format="WAV")
             audio_buffer.seek(0)
             audio_bytes = audio_buffer.read()
 
             features = extract_features(audio_bytes, f"test_{sample_rate}.wav")
 
-            assert features.shape == (162,), \
-                f"Sample rate {sample_rate} should produce 162 features, got {features.shape}"
-            assert not np.isnan(features).any(), \
-                f"Sample rate {sample_rate} should not produce NaN features"
+            assert features.shape == (
+                162,
+            ), f"Sample rate {sample_rate} should produce 162 features, got {features.shape}"
+            assert not np.isnan(
+                features
+            ).any(), f"Sample rate {sample_rate} should not produce NaN features"
 
 
 class TestV1FeatureExtractorRealAudio:
@@ -305,7 +304,9 @@ class TestV1FeatureExtractorRealAudio:
     @pytest.fixture
     def crema_d_path(self):
         """Path to CREMA-D dataset."""
-        return Path("/Users/sagarpratapsingh/dev/sagerstack/ml-speech-emotion-recognition/data/AudioWAV")
+        return Path(
+            "/Users/sagarpratapsingh/dev/sagerstack/ml-speech-emotion-recognition/data/AudioWAV"
+        )
 
     def test_real_crema_d_audio_happy(self, crema_d_path):
         """Test feature extraction on real CREMA-D happy audio."""
@@ -315,7 +316,7 @@ class TestV1FeatureExtractorRealAudio:
             pytest.skip("CREMA-D audio file not found")
 
         # Load audio file
-        with open(audio_file, 'rb') as f:
+        with open(audio_file, "rb") as f:
             audio_bytes = f.read()
 
         features = extract_features(audio_bytes, audio_file.name)
@@ -331,7 +332,7 @@ class TestV1FeatureExtractorRealAudio:
         if not audio_file.exists():
             pytest.skip("CREMA-D audio file not found")
 
-        with open(audio_file, 'rb') as f:
+        with open(audio_file, "rb") as f:
             audio_bytes = f.read()
 
         features = extract_features(audio_bytes, audio_file.name)
@@ -346,7 +347,7 @@ class TestV1FeatureExtractorRealAudio:
         if not audio_file.exists():
             pytest.skip("CREMA-D audio file not found")
 
-        with open(audio_file, 'rb') as f:
+        with open(audio_file, "rb") as f:
             audio_bytes = f.read()
 
         features = extract_features(audio_bytes, audio_file.name)
@@ -362,17 +363,18 @@ class TestV1FeatureExtractorRealAudio:
         if not happy_file.exists() or not sad_file.exists():
             pytest.skip("CREMA-D audio files not found")
 
-        with open(happy_file, 'rb') as f:
+        with open(happy_file, "rb") as f:
             happy_bytes = f.read()
-        with open(sad_file, 'rb') as f:
+        with open(sad_file, "rb") as f:
             sad_bytes = f.read()
 
         happy_features = extract_features(happy_bytes, happy_file.name)
         sad_features = extract_features(sad_bytes, sad_file.name)
 
         # Features should be different
-        assert not np.allclose(happy_features, sad_features, rtol=0.1), \
-            "Different emotions should produce noticeably different features"
+        assert not np.allclose(
+            happy_features, sad_features, rtol=0.1
+        ), "Different emotions should produce noticeably different features"
 
 
 @pytest.mark.unit
@@ -388,8 +390,7 @@ class TestV1FeatureExtractorPerformance:
         elapsed = time.time() - start_time
 
         # Feature extraction should complete in < 2 seconds
-        assert elapsed < 2.0, \
-            f"Feature extraction took {elapsed:.2f}s, expected < 2.0s"
+        assert elapsed < 2.0, f"Feature extraction took {elapsed:.2f}s, expected < 2.0s"
         assert features.shape == (162,), "Features should still be valid"
 
     def test_multiple_extractions_consistent_timing(self, sample_audio_file):
@@ -407,7 +408,7 @@ class TestV1FeatureExtractorPerformance:
         std_time = np.std(timings)
 
         # Standard deviation should be small (consistent performance)
-        assert std_time < avg_time * 0.5, \
-            f"Timing inconsistent: mean={avg_time:.3f}s, std={std_time:.3f}s"
-        assert avg_time < 2.0, \
-            f"Average extraction time {avg_time:.2f}s should be < 2.0s"
+        assert (
+            std_time < avg_time * 0.5
+        ), f"Timing inconsistent: mean={avg_time:.3f}s, std={std_time:.3f}s"
+        assert avg_time < 2.0, f"Average extraction time {avg_time:.2f}s should be < 2.0s"

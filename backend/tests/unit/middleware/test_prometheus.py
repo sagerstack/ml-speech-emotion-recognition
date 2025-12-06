@@ -5,15 +5,15 @@ These tests verify that the PrometheusMiddleware exposes metrics with the correc
 names and labels required by the Grafana FastAPI Observability Dashboard (ID: 16110).
 """
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from starlette.routing import Route
 
-from app.middleware.prometheus import PrometheusMiddleware, metrics_endpoint
+from app.middleware.prometheus import PrometheusMiddleware
 
 
+@pytest.mark.unit
 class TestPrometheusMiddlewareMetricNames:
     """Test that metric names are correct for dashboard compatibility."""
 
@@ -35,9 +35,7 @@ class TestPrometheusMiddlewareMetricNames:
         # Clear any existing collectors for clean test
         collectors_to_remove = []
         for collector in list(REGISTRY._names_to_collectors.values()):
-            if hasattr(collector, "_name") and "fastapi" in getattr(
-                collector, "_name", ""
-            ):
+            if hasattr(collector, "_name") and "fastapi" in getattr(collector, "_name", ""):
                 collectors_to_remove.append(collector)
 
         for collector in collectors_to_remove:
@@ -70,9 +68,7 @@ class TestPrometheusMiddlewareMetricNames:
         # Clear any existing collectors
         collectors_to_remove = []
         for collector in list(REGISTRY._names_to_collectors.values()):
-            if hasattr(collector, "_name") and "fastapi" in getattr(
-                collector, "_name", ""
-            ):
+            if hasattr(collector, "_name") and "fastapi" in getattr(collector, "_name", ""):
                 collectors_to_remove.append(collector)
 
         for collector in collectors_to_remove:
@@ -104,9 +100,9 @@ class TestPrometheusMiddlewareMetricNames:
         }
 
         for expected_name, metric in expected_metrics.items():
-            assert metric._name == expected_name, (
-                f"Metric name mismatch: expected {expected_name}, got {metric._name}"
-            )
+            assert (
+                metric._name == expected_name
+            ), f"Metric name mismatch: expected {expected_name}, got {metric._name}"
 
     def test_app_info_has_app_name_label(self) -> None:
         """Test that fastapi_app_info metric has app_name label for dashboard query."""
@@ -115,9 +111,7 @@ class TestPrometheusMiddlewareMetricNames:
         # Clear any existing collectors
         collectors_to_remove = []
         for collector in list(REGISTRY._names_to_collectors.values()):
-            if hasattr(collector, "_name") and "fastapi" in getattr(
-                collector, "_name", ""
-            ):
+            if hasattr(collector, "_name") and "fastapi" in getattr(collector, "_name", ""):
                 collectors_to_remove.append(collector)
 
         for collector in collectors_to_remove:
@@ -143,9 +137,7 @@ class TestPrometheusMiddlewareMetricNames:
         # Clear any existing collectors
         collectors_to_remove = []
         for collector in list(REGISTRY._names_to_collectors.values()):
-            if hasattr(collector, "_name") and "fastapi" in getattr(
-                collector, "_name", ""
-            ):
+            if hasattr(collector, "_name") and "fastapi" in getattr(collector, "_name", ""):
                 collectors_to_remove.append(collector)
 
         for collector in collectors_to_remove:
@@ -199,6 +191,7 @@ class TestPrometheusMiddlewareMetricNames:
         }
 
 
+@pytest.mark.unit
 class TestPrometheusMetricsOutput:
     """Test the actual metrics output format."""
 
@@ -213,9 +206,7 @@ class TestPrometheusMetricsOutput:
         # Clear any existing collectors
         collectors_to_remove = []
         for collector in list(REGISTRY._names_to_collectors.values()):
-            if hasattr(collector, "_name") and "fastapi" in getattr(
-                collector, "_name", ""
-            ):
+            if hasattr(collector, "_name") and "fastapi" in getattr(collector, "_name", ""):
                 collectors_to_remove.append(collector)
 
         for collector in collectors_to_remove:
@@ -250,9 +241,7 @@ class TestPrometheusMetricsOutput:
         # Clear any existing collectors
         collectors_to_remove = []
         for collector in list(REGISTRY._names_to_collectors.values()):
-            if hasattr(collector, "_name") and "fastapi" in getattr(
-                collector, "_name", ""
-            ):
+            if hasattr(collector, "_name") and "fastapi" in getattr(collector, "_name", ""):
                 collectors_to_remove.append(collector)
 
         for collector in collectors_to_remove:
@@ -283,6 +272,4 @@ class TestPrometheusMetricsOutput:
 
         for metric_name in required_metrics:
             # Check TYPE definition exists
-            assert f"# TYPE {metric_name}" in metrics_output, (
-                f"Missing TYPE for {metric_name}"
-            )
+            assert f"# TYPE {metric_name}" in metrics_output, f"Missing TYPE for {metric_name}"

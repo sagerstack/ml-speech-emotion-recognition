@@ -6,7 +6,6 @@ to prevent file type spoofing and improve security.
 """
 
 import logging
-from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ MAGIC_BYTES = {
 }
 
 
-def detect_file_type_by_magic_bytes(file_data: bytes) -> Optional[str]:
+def detect_file_type_by_magic_bytes(file_data: bytes) -> str | None:
     """
     Detect file type based on magic bytes (file signature).
 
@@ -70,18 +69,15 @@ def detect_file_type_by_magic_bytes(file_data: bytes) -> Optional[str]:
     # Check for MP3 sync headers (no ID3 tag)
     elif len(file_data) >= 2:
         # Check for MPEG sync bytes
-        if (file_data[0] == 0xFF and
-            file_data[1] & 0xE0 == 0xE0):  # MPEG sync pattern
+        if file_data[0] == 0xFF and file_data[1] & 0xE0 == 0xE0:  # MPEG sync pattern
             return "audio/mpeg"
 
     return None
 
 
 def validate_audio_file(
-    file_data: bytes,
-    declared_content_type: str,
-    max_size_mb: int = 30
-) -> Tuple[bool, str]:
+    file_data: bytes, declared_content_type: str, max_size_mb: int = 30
+) -> tuple[bool, str]:
     """
     Enhanced audio file validation including magic byte verification.
 
@@ -123,7 +119,9 @@ def validate_audio_file(
     }
 
     # Check if declared content type matches detected type
-    expected_detected_types = content_type_mapping.get(declared_content_type, [declared_content_type])
+    expected_detected_types = content_type_mapping.get(
+        declared_content_type, [declared_content_type]
+    )
 
     if detected_type not in expected_detected_types:
         logger.warning(
@@ -186,8 +184,7 @@ def _validate_mp3_file(file_data: bytes) -> bool:
 
     # Check for MPEG sync header
     if len(file_data) >= 2:
-        if (file_data[0] == 0xFF and
-            file_data[1] & 0xE0 == 0xE0):
+        if file_data[0] == 0xFF and file_data[1] & 0xE0 == 0xE0:
             return True
 
     return False

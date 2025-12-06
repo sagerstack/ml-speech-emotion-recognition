@@ -5,16 +5,15 @@ This module provides factories for creating test instances of models,
 API responses, and other data structures used throughout the test suite.
 """
 
-import json
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime
+from typing import Any
 
 import factory
 import numpy as np
 from faker import Faker
 
-from app.services.audio_service import AudioFeatures, AudioMetadata
+from app.infrastructure.audio.processor import AudioFeatures, AudioMetadata
 
 fake = Faker()
 
@@ -25,7 +24,9 @@ class AudioMetadataFactory(factory.Factory):
     class Meta:
         model = AudioMetadata
 
-    duration = factory.Faker("pyfloat", left_digits=1, right_digits=2, min_value=0.5, max_value=30.0)
+    duration = factory.Faker(
+        "pyfloat", left_digits=1, right_digits=2, min_value=0.5, max_value=30.0
+    )
     sample_rate = 22050
     channels = 1
     format = factory.Iterator(["wav", "mp3", "flac", "m4a"])
@@ -71,13 +72,16 @@ class EmotionPredictionFactory(factory.Factory):
 
         return {
             "predictions": predictions,
-            "processed_at": datetime.now(timezone.utc).isoformat(),
+            "processed_at": datetime.now(UTC).isoformat(),
             "model_version": "v1.0.0",
             "audio_metadata": {
-                "duration": kwargs.get("duration", fake.pyfloat(left_digits=1, right_digits=2, min_value=0.5, max_value=30.0)),
+                "duration": kwargs.get(
+                    "duration",
+                    fake.pyfloat(left_digits=1, right_digits=2, min_value=0.5, max_value=30.0),
+                ),
                 "sample_rate": 22050,
-                "channels": 1
-            }
+                "channels": 1,
+            },
         }
 
 
@@ -94,20 +98,20 @@ class APIResponseFactory(factory.Factory):
             "success": True,
             "message": message,
             "data": data,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "request_id": str(uuid.uuid4())
+            "timestamp": datetime.now(UTC).isoformat(),
+            "request_id": str(uuid.uuid4()),
         }
 
     @classmethod
-    def error_response(cls, message: str, error_code: str, details: Dict[str, Any] = None):
+    def error_response(cls, message: str, error_code: str, details: dict[str, Any] = None):
         """Create error response."""
         return {
             "success": False,
             "message": message,
             "error_code": error_code,
             "details": details or {},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "request_id": str(uuid.uuid4())
+            "timestamp": datetime.now(UTC).isoformat(),
+            "request_id": str(uuid.uuid4()),
         }
 
 
@@ -120,8 +124,8 @@ class UserFactory(factory.Factory):
     user_id = factory.LazyAttribute(lambda _: str(uuid.uuid4()))
     email = factory.Faker("email")
     name = factory.Faker("name")
-    created_at = factory.LazyAttribute(lambda _: datetime.now(timezone.utc).isoformat())
-    last_login = factory.LazyAttribute(lambda _: datetime.now(timezone.utc).isoformat())
+    created_at = factory.LazyAttribute(lambda _: datetime.now(UTC).isoformat())
+    last_login = factory.LazyAttribute(lambda _: datetime.now(UTC).isoformat())
     is_active = True
     subscription_tier = factory.Iterator(["free", "pro", "enterprise"])
 
@@ -136,7 +140,7 @@ class AudioUploadRequestFactory(factory.Factory):
     file_size = factory.Faker("pyint", min_value=1000, max_value=25000000)
     content_type = factory.Iterator(["audio/wav", "audio/mp3", "audio/flac", "audio/m4a"])
     user_id = factory.LazyAttribute(lambda _: str(uuid.uuid4()))
-    uploaded_at = factory.LazyAttribute(lambda _: datetime.now(timezone.utc).isoformat())
+    uploaded_at = factory.LazyAttribute(lambda _: datetime.now(UTC).isoformat())
 
 
 class ProcessingJobFactory(factory.Factory):
@@ -148,44 +152,33 @@ class ProcessingJobFactory(factory.Factory):
     job_id = factory.LazyAttribute(lambda _: str(uuid.uuid4()))
     user_id = factory.LazyAttribute(lambda _: str(uuid.uuid4()))
     status = factory.Iterator(["pending", "processing", "completed", "failed"])
-    created_at = factory.LazyAttribute(lambda _: datetime.now(timezone.utc).isoformat())
-    started_at = factory.LazyAttribute(lambda _: datetime.now(timezone.utc).isoformat())
-    completed_at = factory.LazyAttribute(lambda _: datetime.now(timezone.utc).isoformat())
+    created_at = factory.LazyAttribute(lambda _: datetime.now(UTC).isoformat())
+    started_at = factory.LazyAttribute(lambda _: datetime.now(UTC).isoformat())
+    completed_at = factory.LazyAttribute(lambda _: datetime.now(UTC).isoformat())
     file_name = factory.Faker("file_name", extension="wav")
-    duration = factory.Faker("pyfloat", left_digits=1, right_digits=2, min_value=0.5, max_value=30.0)
+    duration = factory.Faker(
+        "pyfloat", left_digits=1, right_digits=2, min_value=0.5, max_value=30.0
+    )
 
     @classmethod
     def pending_job(cls):
         """Create a pending processing job."""
-        return cls(
-            status="pending",
-            started_at=None,
-            completed_at=None
-        )
+        return cls(status="pending", started_at=None, completed_at=None)
 
     @classmethod
     def processing_job(cls):
         """Create a processing job."""
-        return cls(
-            status="processing",
-            completed_at=None
-        )
+        return cls(status="processing", completed_at=None)
 
     @classmethod
     def completed_job(cls):
         """Create a completed processing job."""
-        return cls(
-            status="completed",
-            result=EmotionPredictionFactory()
-        )
+        return cls(status="completed", result=EmotionPredictionFactory())
 
     @classmethod
     def failed_job(cls, error_message: str = "Processing failed"):
         """Create a failed processing job."""
-        return cls(
-            status="failed",
-            error_message=error_message
-        )
+        return cls(status="failed", error_message=error_message)
 
 
 class MetricsDataFactory(factory.Factory):
@@ -194,10 +187,12 @@ class MetricsDataFactory(factory.Factory):
     class Meta:
         model = dict
 
-    timestamp = factory.LazyAttribute(lambda _: datetime.now(timezone.utc).isoformat())
+    timestamp = factory.LazyAttribute(lambda _: datetime.now(UTC).isoformat())
     request_count = factory.Faker("pyint", min_value=0, max_value=1000)
     error_count = factory.Faker("pyint", min_value=0, max_value=100)
-    avg_response_time_ms = factory.Faker("pyfloat", left_digits=3, right_digits=2, min_value=50, max_value=5000)
+    avg_response_time_ms = factory.Faker(
+        "pyfloat", left_digits=3, right_digits=2, min_value=50, max_value=5000
+    )
     active_users = factory.Faker("pyint", min_value=0, max_value=100)
     total_audio_processed = factory.Faker("pyint", min_value=0, max_value=500)
 
@@ -211,18 +206,12 @@ class WebSocketMessageFactory(factory.Factory):
     @classmethod
     def ping_message(cls):
         """Create ping message."""
-        return {
-            "type": "ping",
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
+        return {"type": "ping", "timestamp": datetime.now(UTC).isoformat()}
 
     @classmethod
     def pong_message(cls):
         """Create pong message."""
-        return {
-            "type": "pong",
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
+        return {"type": "pong", "timestamp": datetime.now(UTC).isoformat()}
 
     @classmethod
     def prediction_update(cls, job_id: str, status: str, progress: float = None):
@@ -231,7 +220,7 @@ class WebSocketMessageFactory(factory.Factory):
             "type": "prediction_update",
             "job_id": job_id,
             "status": status,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         if progress is not None:
@@ -240,13 +229,13 @@ class WebSocketMessageFactory(factory.Factory):
         return message
 
     @classmethod
-    def prediction_complete(cls, job_id: str, result: Dict[str, Any]):
+    def prediction_complete(cls, job_id: str, result: dict[str, Any]):
         """Create prediction complete message."""
         return {
             "type": "prediction_complete",
             "job_id": job_id,
             "result": result,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
     @classmethod
@@ -256,7 +245,7 @@ class WebSocketMessageFactory(factory.Factory):
             "type": "error",
             "error": error_message,
             "error_code": error_code,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
 
@@ -273,16 +262,16 @@ class S3EventFactory(factory.Factory):
             "eventVersion": "2.1",
             "eventSource": "aws:s3",
             "awsRegion": "us-east-1",
-            "eventTime": datetime.now(timezone.utc).isoformat(),
+            "eventTime": datetime.now(UTC).isoformat(),
             "eventName": "ObjectCreated:Put",
             "s3": {
                 "bucket": {"name": bucket_name},
                 "object": {
                     "key": key,
                     "size": factory.Faker("pyint", min_value=1000, max_value=25000000),
-                    "eTag": factory.Faker("md5")
-                }
-            }
+                    "eTag": factory.Faker("md5"),
+                },
+            },
         }
 
 
@@ -293,14 +282,14 @@ class SageMakerResponseFactory(factory.Factory):
         model = dict
 
     @classmethod
-    def successful_inference(cls, predictions: List[Dict[str, Any]]):
+    def successful_inference(cls, predictions: list[dict[str, Any]]):
         """Create successful SageMaker inference response."""
         return {
             "predictions": predictions,
             "model_name": "emotion-recognition-v1",
             "model_version": "1.0.0",
             "inference_time": 0.123,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
     @classmethod
@@ -309,7 +298,7 @@ class SageMakerResponseFactory(factory.Factory):
         return {
             "error": error_message,
             "error_type": "ModelError",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
 
@@ -318,62 +307,59 @@ class TestDataGenerator:
     """Utility class for generating complex test data scenarios."""
 
     @staticmethod
-    def create_batch_predictions(count: int = 10) -> List[Dict[str, Any]]:
+    def create_batch_predictions(count: int = 10) -> list[dict[str, Any]]:
         """Create a batch of emotion predictions."""
         return [EmotionPredictionFactory() for _ in range(count)]
 
     @staticmethod
-    def create_time_series_metrics(hours: int = 24) -> List[Dict[str, Any]]:
+    def create_time_series_metrics(hours: int = 24) -> list[dict[str, Any]]:
         """Create time series metrics data."""
         metrics = []
-        base_time = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        base_time = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
 
         for i in range(hours):
             timestamp = base_time.replace(hour=base_time.hour - (hours - i))
-            metrics.append({
-                **MetricsDataFactory(),
-                "timestamp": timestamp.isoformat()
-            })
+            metrics.append({**MetricsDataFactory(), "timestamp": timestamp.isoformat()})
 
         return metrics
 
     @staticmethod
-    def create_user_session(user_id: str = None) -> Dict[str, Any]:
+    def create_user_session(user_id: str = None) -> dict[str, Any]:
         """Create user session data."""
         return {
             "session_id": str(uuid.uuid4()),
             "user_id": user_id or str(uuid.uuid4()),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "last_activity": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+            "last_activity": datetime.now(UTC).isoformat(),
             "ip_address": fake.ipv4(),
             "user_agent": fake.user_agent(),
-            "request_count": factory.Faker("pyint", min_value=1, max_value=100)
+            "request_count": factory.Faker("pyint", min_value=1, max_value=100),
         }
 
     @staticmethod
-    def create_error_scenario(error_type: str) -> Dict[str, Any]:
+    def create_error_scenario(error_type: str) -> dict[str, Any]:
         """Create specific error scenario data."""
         scenarios = {
             "invalid_format": {
                 "error_code": "INVALID_AUDIO_FORMAT",
                 "message": "Unsupported audio format",
-                "details": {"supported_formats": ["wav", "mp3", "flac", "m4a"]}
+                "details": {"supported_formats": ["wav", "mp3", "flac", "m4a"]},
             },
             "file_too_large": {
                 "error_code": "FILE_TOO_LARGE",
                 "message": "Audio file exceeds size limit",
-                "details": {"max_size_mb": 25, "actual_size_mb": 30}
+                "details": {"max_size_mb": 25, "actual_size_mb": 30},
             },
             "processing_failed": {
                 "error_code": "PROCESSING_FAILED",
                 "message": "Audio processing failed",
-                "details": {"stage": "feature_extraction", "error": "Corrupted audio data"}
+                "details": {"stage": "feature_extraction", "error": "Corrupted audio data"},
             },
             "aws_error": {
                 "error_code": "AWS_SERVICE_ERROR",
                 "message": "AWS service temporarily unavailable",
-                "details": {"service": "sagemaker", "region": "us-east-1"}
-            }
+                "details": {"service": "sagemaker", "region": "us-east-1"},
+            },
         }
 
         return scenarios.get(error_type, scenarios["processing_failed"])

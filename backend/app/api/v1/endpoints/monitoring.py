@@ -4,9 +4,9 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app.services.evidently_monitoring import get_monitoring_service
-from app.services.prediction_buffer import get_prediction_buffer
-from app.utils.logging import get_logger
+from app.domain.monitoring.prediction_buffer import get_prediction_buffer
+from app.infrastructure.monitoring.evidently_service import get_monitoring_service
+from app.infrastructure.observability.logging import get_logger
 
 router = APIRouter()
 logger = get_logger(__name__)

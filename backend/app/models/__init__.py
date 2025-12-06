@@ -7,4 +7,4 @@ for unpickling trained models.
 
 from app.models.ultra_ensemble import UltraEnsembleModel
 
-__all__ = ['UltraEnsembleModel']
+__all__ = ["UltraEnsembleModel"]

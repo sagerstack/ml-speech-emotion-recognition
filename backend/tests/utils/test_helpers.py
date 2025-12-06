@@ -10,7 +10,7 @@ import json
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -27,7 +27,7 @@ class AudioTestUtils:
         duration: float = 2.0,
         sample_rate: int = 22050,
         frequency: float = 440.0,
-        format: str = "WAV"
+        format: str = "WAV",
     ) -> bytes:
         """Create a test audio file with specified parameters."""
         # Generate time array
@@ -73,9 +73,17 @@ class AudioTestUtils:
         return b"This is not valid audio data"
 
     @staticmethod
-    def validate_audio_features(features: Dict[str, Any]) -> bool:
+    def validate_audio_features(features: dict[str, Any]) -> bool:
         """Validate that audio features have correct structure."""
-        required_keys = ["mfcc", "chroma", "spectral_centroid", "spectral_rolloff", "zero_crossing_rate", "rms", "metadata"]
+        required_keys = [
+            "mfcc",
+            "chroma",
+            "spectral_centroid",
+            "spectral_rolloff",
+            "zero_crossing_rate",
+            "rms",
+            "metadata",
+        ]
 
         if not all(key in features for key in required_keys):
             return False
@@ -89,7 +97,13 @@ class AudioTestUtils:
 
         # Validate metadata
         metadata = features.get("metadata", {})
-        required_metadata_keys = ["duration", "sample_rate", "channels", "format", "file_size_bytes"]
+        required_metadata_keys = [
+            "duration",
+            "sample_rate",
+            "channels",
+            "format",
+            "file_size_bytes",
+        ]
 
         return all(key in metadata for key in required_metadata_keys)
 
@@ -99,11 +113,7 @@ class APITestUtils:
 
     @staticmethod
     def make_authenticated_request(
-        client: TestClient,
-        method: str,
-        endpoint: str,
-        token: str,
-        **kwargs
+        client: TestClient, method: str, endpoint: str, token: str, **kwargs
     ) -> requests.Response:
         """Make an authenticated API request."""
         headers = kwargs.pop("headers", {})
@@ -117,7 +127,7 @@ class APITestUtils:
         endpoint: str,
         audio_data: bytes,
         filename: str,
-        additional_data: Optional[Dict[str, Any]] = None
+        additional_data: dict[str, Any] | None = None,
     ) -> requests.Response:
         """Upload an audio file to the API."""
         files = {"file": (filename, audio_data, "audio/wav")}
@@ -132,10 +142,12 @@ class APITestUtils:
         response: requests.Response,
         expected_status: int = 200,
         expected_success: bool = True,
-        check_data_structure: bool = True
-    ) -> Dict[str, Any]:
+        check_data_structure: bool = True,
+    ) -> dict[str, Any]:
         """Assert common API response properties."""
-        assert response.status_code == expected_status, f"Expected {expected_status}, got {response.status_code}"
+        assert (
+            response.status_code == expected_status
+        ), f"Expected {expected_status}, got {response.status_code}"
 
         data = response.json()
 
@@ -154,15 +166,15 @@ class APITestUtils:
 
     @staticmethod
     def assert_error_response(
-        response: requests.Response,
-        expected_status: int,
-        expected_error_code: Optional[str] = None
-    ) -> Dict[str, Any]:
+        response: requests.Response, expected_status: int, expected_error_code: str | None = None
+    ) -> dict[str, Any]:
         """Assert error response properties."""
         data = APITestUtils.assert_api_response(response, expected_status, expected_success=False)
 
         if expected_error_code:
-            assert data.get("error_code") == expected_error_code, f"Expected error code {expected_error_code}"
+            assert (
+                data.get("error_code") == expected_error_code
+            ), f"Expected error code {expected_error_code}"
 
         assert "message" in data, "Error response should include message"
 
@@ -178,15 +190,15 @@ class WebSocketTestUtils:
         await websocket.send_json({"type": "ping"})
 
     @staticmethod
-    async def wait_for_message(websocket, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
+    async def wait_for_message(websocket, timeout: float = 5.0) -> dict[str, Any] | None:
         """Wait for WebSocket message with timeout."""
         try:
             return await asyncio.wait_for(websocket.receive_json(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
     @staticmethod
-    def validate_websocket_message(message: Dict[str, Any], message_type: str) -> bool:
+    def validate_websocket_message(message: dict[str, Any], message_type: str) -> bool:
         """Validate WebSocket message structure."""
         if not isinstance(message, dict):
             return False
@@ -217,7 +229,7 @@ class MockUtils:
         mock_client.get_object.return_value = {
             "Body": MagicMock(),
             "ContentLength": 1024,
-            "LastModified": "2024-01-01T00:00:00Z"
+            "LastModified": "2024-01-01T00:00:00Z",
         }
 
         # Mock bucket operations
@@ -228,7 +240,7 @@ class MockUtils:
         mock_client.head_object.return_value = {
             "ContentLength": 1024,
             "LastModified": "2024-01-01T00:00:00Z",
-            "ETag": "mock-etag"
+            "ETag": "mock-etag",
         }
 
         return mock_client
@@ -242,7 +254,7 @@ class MockUtils:
         mock_client.invoke_endpoint.return_value = {
             "Body": MagicMock(),
             "ContentType": "application/json",
-            "InvokedProductionVariant": "variant-1"
+            "InvokedProductionVariant": "variant-1",
         }
 
         # Configure the Body mock to return JSON data
@@ -250,11 +262,13 @@ class MockUtils:
             "predictions": [
                 {"label": "happy", "confidence": 0.85},
                 {"label": "neutral", "confidence": 0.10},
-                {"label": "sad", "confidence": 0.05}
+                {"label": "sad", "confidence": 0.05},
             ]
         }
 
-        mock_client.invoke_endpoint.return_value["Body"].read.return_value = json.dumps(mock_response_data).encode()
+        mock_client.invoke_endpoint.return_value["Body"].read.return_value = json.dumps(
+            mock_response_data
+        ).encode()
 
         return mock_client
 
@@ -310,12 +324,10 @@ class PerformanceTestUtils:
 
     @staticmethod
     async def run_concurrent_requests(
-        client: TestClient,
-        endpoint: str,
-        num_requests: int = 10,
-        **kwargs
-    ) -> List[requests.Response]:
+        client: TestClient, endpoint: str, num_requests: int = 10, **kwargs
+    ) -> list[requests.Response]:
         """Run multiple concurrent requests to an endpoint."""
+
         async def make_request():
             # Note: TestClient is synchronous, so we'll run it in thread pool
             loop = asyncio.get_event_loop()
@@ -325,13 +337,13 @@ class PerformanceTestUtils:
         return await asyncio.gather(*tasks)
 
     @staticmethod
-    def calculate_performance_metrics(responses: List[requests.Response]) -> Dict[str, Any]:
+    def calculate_performance_metrics(responses: list[requests.Response]) -> dict[str, Any]:
         """Calculate performance metrics from a list of responses."""
         if not responses:
             return {}
 
         status_codes = [r.status_code for r in responses]
-        response_times = [r.elapsed.total_seconds() for r in responses if hasattr(r, 'elapsed')]
+        response_times = [r.elapsed.total_seconds() for r in responses if hasattr(r, "elapsed")]
 
         return {
             "total_requests": len(responses),
@@ -342,7 +354,7 @@ class PerformanceTestUtils:
             "min_response_time": np.min(response_times) if response_times else 0,
             "max_response_time": np.max(response_times) if response_times else 0,
             "p95_response_time": np.percentile(response_times, 95) if response_times else 0,
-            "p99_response_time": np.percentile(response_times, 99) if response_times else 0
+            "p99_response_time": np.percentile(response_times, 99) if response_times else 0,
         }
 
 
@@ -353,6 +365,7 @@ class ValidationUtils:
     def validate_uuid(uuid_string: str) -> bool:
         """Validate UUID string format."""
         import uuid as uuid_lib
+
         try:
             uuid_lib.UUID(uuid_string)
             return True
@@ -364,7 +377,8 @@ class ValidationUtils:
         """Validate ISO timestamp format."""
         try:
             from datetime import datetime
-            datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+
+            datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
             return True
         except ValueError:
             return False
@@ -373,11 +387,12 @@ class ValidationUtils:
     def validate_email(email: str) -> bool:
         """Validate email format."""
         import re
-        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+
+        pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
         return re.match(pattern, email) is not None
 
     @staticmethod
-    def validate_audio_metadata(metadata: Dict[str, Any]) -> bool:
+    def validate_audio_metadata(metadata: dict[str, Any]) -> bool:
         """Validate audio metadata structure."""
         required_fields = ["duration", "sample_rate", "channels", "format", "file_size_bytes"]
 
@@ -394,7 +409,9 @@ class ValidationUtils:
         if metadata["channels"] not in [1, 2]:  # Mono or stereo
             return False
 
-        if metadata["file_size_bytes"] <= 0 or metadata["file_size_bytes"] > 100 * 1024 * 1024:  # 100MB max
+        if (
+            metadata["file_size_bytes"] <= 0 or metadata["file_size_bytes"] > 100 * 1024 * 1024
+        ):  # 100MB max
             return False
 
         return True
@@ -414,6 +431,7 @@ class FileTestUtils:
     def cleanup_temp_files(pattern: str = "/tmp/test_*") -> None:
         """Clean up temporary files matching pattern."""
         import glob
+
         for file_path in glob.glob(pattern):
             try:
                 Path(file_path).unlink()
@@ -434,9 +452,19 @@ class FileTestUtils:
 
 
 # Common assertions
-def assert_audio_processing_result(result: Dict[str, Any], expected_keys: Optional[List[str]] = None) -> None:
+def assert_audio_processing_result(
+    result: dict[str, Any], expected_keys: list[str] | None = None
+) -> None:
     """Assert audio processing result has expected structure."""
-    default_keys = ["mfcc", "chroma", "spectral_centroid", "spectral_rolloff", "zero_crossing_rate", "rms", "metadata"]
+    default_keys = [
+        "mfcc",
+        "chroma",
+        "spectral_centroid",
+        "spectral_rolloff",
+        "zero_crossing_rate",
+        "rms",
+        "metadata",
+    ]
     expected_keys = expected_keys or default_keys
 
     assert isinstance(result, dict), "Result should be a dictionary"
@@ -444,7 +472,7 @@ def assert_audio_processing_result(result: Dict[str, Any], expected_keys: Option
     assert ValidationUtils.validate_audio_metadata(result["metadata"]), "Invalid metadata structure"
 
 
-def assert_emotion_prediction(prediction: Dict[str, Any]) -> None:
+def assert_emotion_prediction(prediction: dict[str, Any]) -> None:
     """Assert emotion prediction has expected structure."""
     assert isinstance(prediction, dict), "Prediction should be a dictionary"
     assert "predictions" in prediction, "Missing predictions key"
