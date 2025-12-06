@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 
 from app.infrastructure.config.feature_flags import FeatureFlags, get_feature_flags
-from app.utils.config import Settings
+from app.infrastructure.config import Settings
 
 
 class TestFeatureFlagsDefaultBehavior:

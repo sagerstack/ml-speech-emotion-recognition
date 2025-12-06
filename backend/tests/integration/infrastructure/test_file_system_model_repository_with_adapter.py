@@ -52,16 +52,34 @@ class TestFileSystemModelRepositoryWithAdapter:
     # Test Fixtures
 
     @pytest.fixture
-    def temp_models_dir(self) -> Path:
-        """Create temporary models directory with test models."""
+    def temp_test_dirs(self) -> tuple[Path, Path]:
+        """Create temporary models and infrastructure directories.
+
+        Returns:
+            Tuple of (models_dir, infrastructure_dir)
+        """
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
 
-            # Create v4 model directory
-            v4_dir = base_path / "v4"
-            v4_dir.mkdir()
+            # Create models directory (for model.pkl)
+            models_path = base_path / "models"
+            models_path.mkdir()
 
-            # Create metadata
+            v4_models_dir = models_path / "v4"
+            v4_models_dir.mkdir()
+
+            # Save mock model
+            mock_model = SimpleMockModel()
+            joblib.dump(mock_model, v4_models_dir / "model.pkl")
+
+            # Create infrastructure directory (for metadata.json)
+            infra_path = base_path / "infrastructure"
+            infra_path.mkdir()
+
+            v4_infra_dir = infra_path / "v4"
+            v4_infra_dir.mkdir()
+
+            # Create metadata in infrastructure
             metadata = {
                 "version": "4",
                 "model_name": "Test Model v4",
@@ -69,19 +87,19 @@ class TestFileSystemModelRepositoryWithAdapter:
                 "feature_dimension": 210,
                 "classes": ["angry", "disgust", "fear", "happy", "neutral", "sad"],
             }
-            with open(v4_dir / "metadata.json", "w") as f:
+            with open(v4_infra_dir / "metadata.json", "w") as f:
                 json.dump(metadata, f)
 
-            # Save mock model
-            mock_model = SimpleMockModel()
-            joblib.dump(mock_model, v4_dir / "model.pkl")
-
-            yield base_path
+            yield models_path, infra_path
 
     @pytest.fixture
-    def repository(self, temp_models_dir: Path) -> FileSystemModelRepository:
+    def repository(self, temp_test_dirs: tuple[Path, Path]) -> FileSystemModelRepository:
         """Create repository with temp models dir."""
-        return FileSystemModelRepository(models_dir=str(temp_models_dir))
+        models_dir, infrastructure_dir = temp_test_dirs
+        return FileSystemModelRepository(
+            models_dir=str(models_dir),
+            infrastructure_dir=str(infrastructure_dir)
+        )
 
     @pytest.fixture
     def real_models_dir(self) -> Path:
@@ -198,26 +216,37 @@ class TestFileSystemModelRepositoryWithAdapter:
 
     # Test Error Handling
 
-    def test_repository_raises_error_for_invalid_model(self, temp_models_dir: Path):
+    def test_repository_raises_error_for_invalid_model(
+        self, temp_test_dirs: tuple[Path, Path]
+    ):
         """Test repository handles models without predict_proba."""
-        # Create v5 with invalid model
-        v5_dir = temp_models_dir / "v5"
-        v5_dir.mkdir()
+        models_dir, infra_dir = temp_test_dirs
+
+        # Create v5 model directory
+        v5_models_dir = models_dir / "v5"
+        v5_models_dir.mkdir()
+
+        # Save invalid model (no predict_proba)
+        invalid_model = InvalidMockModel()
+        joblib.dump(invalid_model, v5_models_dir / "model.pkl")
+
+        # Create v5 infrastructure
+        v5_infra_dir = infra_dir / "v5"
+        v5_infra_dir.mkdir()
 
         metadata = {
             "version": "5",
             "model_type": "Invalid",
             "feature_dimension": 210,
         }
-        with open(v5_dir / "metadata.json", "w") as f:
+        with open(v5_infra_dir / "metadata.json", "w") as f:
             json.dump(metadata, f)
 
-        # Save invalid model (no predict_proba)
-        invalid_model = InvalidMockModel()
-        joblib.dump(invalid_model, v5_dir / "model.pkl")
-
         # Try to load
-        repository = FileSystemModelRepository(models_dir=str(temp_models_dir))
+        repository = FileSystemModelRepository(
+            models_dir=str(models_dir),
+            infrastructure_dir=str(infra_dir)
+        )
         version = ModelVersion.from_string("v5")
 
         with pytest.raises(InferenceError) as exc_info:
@@ -499,24 +528,34 @@ class TestFileSystemModelRepositoryWithAdapter:
 
     # Test Multiple Models
 
-    def test_repository_handles_multiple_model_versions(self, temp_models_dir: Path):
+    def test_repository_handles_multiple_model_versions(
+        self, temp_test_dirs: tuple[Path, Path]
+    ):
         """Test repository handles multiple model versions."""
-        # Create v3 model
-        v3_dir = temp_models_dir / "v3"
-        v3_dir.mkdir()
+        models_dir, infra_dir = temp_test_dirs
+
+        # Create v3 model directory
+        v3_models_dir = models_dir / "v3"
+        v3_models_dir.mkdir()
+        joblib.dump(SimpleMockModel(), v3_models_dir / "model.pkl")
+
+        # Create v3 infrastructure
+        v3_infra_dir = infra_dir / "v3"
+        v3_infra_dir.mkdir()
 
         metadata_v3 = {
             "version": "3",
             "model_type": "Ultra Ensemble",
             "feature_dimension": 210,
         }
-        with open(v3_dir / "metadata.json", "w") as f:
+        with open(v3_infra_dir / "metadata.json", "w") as f:
             json.dump(metadata_v3, f)
 
-        joblib.dump(SimpleMockModel(), v3_dir / "model.pkl")
-
         # Create repository
-        repository = FileSystemModelRepository(models_dir=str(temp_models_dir))
+        repository = FileSystemModelRepository(
+            models_dir=str(models_dir),
+            infrastructure_dir=str(infra_dir)
+        )
 
         # Load both versions
         model_v3 = repository.load_model(ModelVersion.from_string("v3"))

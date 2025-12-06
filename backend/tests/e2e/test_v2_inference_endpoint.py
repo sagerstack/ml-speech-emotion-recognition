@@ -1,8 +1,8 @@
-"""End-to-end test for v2/inference/latest endpoint.
+"""End-to-end test for v2/inference endpoint.
 
 This test verifies the complete inference workflow using the v2 clean architecture API:
 1. Load a real audio file from the CREMA-D dataset
-2. Send it to the v2/inference/latest endpoint
+2. Send it to the v2/inference endpoint
 3. Verify the response structure and data types
 4. Verify that the prediction is valid and contains expected fields
 """
@@ -43,8 +43,8 @@ def sample_audio_file():
 @pytest.mark.e2e
 @pytest.mark.audio
 @pytest.mark.api
-def test_v2_inference_latest_endpoint_with_real_audio(client: TestClient, sample_audio_file: Path):
-    """Test v2/inference/latest endpoint with real CREMA-D audio file.
+def test_v2_inference_endpoint_with_real_audio(client: TestClient, sample_audio_file: Path):
+    """Test v2/inference endpoint with real CREMA-D audio file.
 
     This E2E test verifies:
     1. Endpoint accepts audio file upload
@@ -59,9 +59,9 @@ def test_v2_inference_latest_endpoint_with_real_audio(client: TestClient, sample
     with open(sample_audio_file, "rb") as audio_file:
         audio_bytes = audio_file.read()
 
-    # Act: Send POST request to v2/inference/latest
+    # Act: Send POST request to v2/inference
     response = client.post(
-        "/v2/inference/latest",
+        "/v2/inference/",
         files={"file": ("1001_DFA_ANG_XX.wav", audio_bytes, "audio/wav")}
     )
 
@@ -74,8 +74,8 @@ def test_v2_inference_latest_endpoint_with_real_audio(client: TestClient, sample
     assert "prediction" in data, "Response missing 'prediction' field"
     assert "processing_time_ms" in data, "Response missing 'processing_time_ms' field"
 
-    # Assert: Version field
-    assert data["version"] == "v4", f"Expected version 'v4', got {data['version']}"
+    # Assert: Version field (should be a valid version like v4, v5, etc.)
+    assert data["version"].startswith("v"), f"Expected version to start with 'v', got {data['version']}"
 
     # Assert: Prediction structure
     prediction = data["prediction"]
@@ -133,7 +133,7 @@ def test_v2_inference_latest_endpoint_with_real_audio(client: TestClient, sample
     )
 
     # Log the results for visibility
-    print(f"\n✅ E2E Test Passed - v2/inference/latest")
+    print(f"\n✅ E2E Test Passed - v2/inference")
     print(f"   Audio File: {sample_audio_file.name}")
     print(f"   Predicted Emotion: {predicted_emotion}")
     print(f"   Confidence: {confidence:.4f}")
@@ -146,8 +146,8 @@ def test_v2_inference_latest_endpoint_with_real_audio(client: TestClient, sample
 
 @pytest.mark.e2e
 @pytest.mark.api
-def test_v2_inference_latest_endpoint_invalid_file(client: TestClient):
-    """Test v2/inference/latest endpoint with invalid file.
+def test_v2_inference_endpoint_invalid_file(client: TestClient):
+    """Test v2/inference endpoint with invalid file.
 
     Verifies that the endpoint properly handles invalid input.
     """
@@ -156,7 +156,7 @@ def test_v2_inference_latest_endpoint_invalid_file(client: TestClient):
 
     # Act: Send POST request with invalid audio
     response = client.post(
-        "/v2/inference/latest",
+        "/v2/inference/",
         files={"file": ("invalid.wav", invalid_audio, "audio/wav")}
     )
 
@@ -178,13 +178,13 @@ def test_v2_inference_latest_endpoint_invalid_file(client: TestClient):
 
 @pytest.mark.e2e
 @pytest.mark.api
-def test_v2_inference_latest_endpoint_missing_file(client: TestClient):
-    """Test v2/inference/latest endpoint without uploading a file.
+def test_v2_inference_endpoint_missing_file(client: TestClient):
+    """Test v2/inference endpoint without uploading a file.
 
     Verifies that the endpoint requires a file to be uploaded.
     """
     # Act: Send POST request without file
-    response = client.post("/v2/inference/latest")
+    response = client.post("/v2/inference/")
 
     # Assert: Should return 422 Unprocessable Entity
     assert response.status_code == 422, (

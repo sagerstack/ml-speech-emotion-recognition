@@ -8,7 +8,7 @@ import pytest
 
 from app.domain.monitoring.prediction_buffer import PredictionBuffer, PredictionRecord
 from app.infrastructure.monitoring.evidently_service import (
-    EvidentlyMonitoringService,
+    EvidentlyService,
     MonitoringReportInfo,
 )
 
@@ -100,7 +100,7 @@ def test_generate_report_writes_files_and_summary(tmp_path, monkeypatch):
     )
 
     reports_dir = tmp_path / "reports"
-    service = EvidentlyMonitoringService(
+    service = EvidentlyService(
         buffer=buffer,
         reference_data_path=str(reference_csv),
         reports_dir=str(reports_dir),
@@ -139,7 +139,7 @@ def test_list_and_lookup_reports(tmp_path, monkeypatch):
 
     monkeypatch.setattr("app.infrastructure.monitoring.evidently_service.Report", DummyReport)
 
-    service = EvidentlyMonitoringService(
+    service = EvidentlyService(
         buffer=buffer,
         reference_data_path=str(reference_csv),
         reports_dir=str(tmp_path / "reports"),
@@ -169,7 +169,7 @@ def test_get_report_path_prevents_traversal(tmp_path: Path, monkeypatch):
     buffer = PredictionBuffer(max_records=1)
     buffer.add(_prediction_record())
 
-    service = EvidentlyMonitoringService(
+    service = EvidentlyService(
         buffer=buffer,
         reference_data_path=str(reference_csv),
         reports_dir=str(tmp_path / "reports"),

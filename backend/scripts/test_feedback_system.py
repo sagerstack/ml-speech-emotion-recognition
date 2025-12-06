@@ -110,7 +110,7 @@ def post_inference(file_path: Path) -> tuple[str, str, str]:
 
 def post_feedback(prediction_id: str, actual_emotion: str):
     """Post feedback with actual emotion to monitoring endpoint."""
-    url = f"{API_BASE_URL}/monitoring/feedback/{prediction_id}"
+    url = f"{API_BASE_URL}/v1/monitoring/feedback/{prediction_id}"
     payload = {"actual_emotion": actual_emotion}
 
     response = requests.post(url, json=payload, timeout=10)
@@ -118,6 +118,24 @@ def post_feedback(prediction_id: str, actual_emotion: str):
 
     print(f"✓ Feedback submitted: {actual_emotion}")
     return response.json()
+
+
+def generate_monitoring_report():
+    """Trigger manual report generation after all feedback is submitted."""
+    url = f"{API_BASE_URL}/v1/monitoring/generate"
+
+    print("\n📊 Generating monitoring report...")
+    response = requests.post(url, timeout=60)
+    response.raise_for_status()
+
+    data = response.json()
+    report_name = data.get("report", {}).get("name", "unknown")
+    html_path = data.get("report", {}).get("html_path", "")
+
+    print(f"✓ Report generated: {report_name}")
+    print(f"  HTML: {html_path}")
+
+    return data
 
 
 def main():
@@ -158,6 +176,12 @@ def main():
 
             print(f"  Match: {'✓ CORRECT' if correct else '✗ INCORRECT'}")
 
+            # Send feedback with ground truth to monitoring
+            try:
+                post_feedback(prediction_id, actual_emotion)
+            except Exception as fb_exc:
+                print(f"  ⚠️ Feedback submission failed: {fb_exc}")
+
             # Small delay between requests
             time.sleep(0.5)
 
@@ -187,15 +211,16 @@ def main():
                 f"predicted={result['predicted']}, actual={result['actual']}"
             )
 
-        print(f"\n📊 Monitoring Report:")
-        print(f"  - A report should be auto-generated after 10 predictions")
-        print(f"  - Check: backend/monitoring_reports/")
-        print(f"  - View dashboard: http://localhost:8080")
+        # Generate monitoring report after all feedback is submitted
+        try:
+            generate_monitoring_report()
+        except Exception as e:
+            print(f"❌ Failed to generate report: {e}")
+
         print(f"\n💡 Next Steps:")
         print(f"  1. Check monitoring_reports/ directory for new report")
         print(f"  2. Open Evidently dashboard at http://localhost:8080")
-        print(f"  3. Navigate to 'Primary Metrics' tab to see accuracy")
-        print(f"  4. Run: poetry run python scripts/configure_rich_dashboard.py")
+        print(f"  3. Refresh browser (F5) to see updated metrics")
     else:
         print("\n❌ No successful predictions")
 

@@ -24,8 +24,8 @@ from typing import Any
 
 import numpy as np
 
-from app.interfaces import validate_feature_extractor, validate_feature_output
-from app.utils.config import get_settings
+from app.domain.interfaces import validate_feature_extractor, validate_feature_output
+from app.infrastructure.config import get_settings
 from app.infrastructure.observability.logging import get_logger
 
 logger = get_logger(__name__)
@@ -68,15 +68,25 @@ class ModelRegistry:
         prediction = registry.predict(model.version, audio_bytes, filename)
     """
 
-    def __init__(self, models_path: Path | None = None):
+    def __init__(self, models_path: Path | None = None, infrastructure_path: Path | None = None):
         """
         Initialize the model registry.
 
         Args:
             models_path: Path to models directory (default: settings.models_dir)
+            infrastructure_path: Path to infrastructure/model directory for metadata/extractors.
+                               Defaults to 'app/infrastructure/model' relative to backend root.
         """
         settings = get_settings()
         self.models_path = models_path or Path(settings.models_dir)
+
+        # Infrastructure path for metadata and feature extractors (clean architecture)
+        if infrastructure_path is None:
+            backend_root = Path(__file__).parents[3]
+            self.infrastructure_path = backend_root / "app" / "infrastructure" / "model"
+        else:
+            self.infrastructure_path = infrastructure_path
+
         self.versions: dict[str, ModelVersion] = {}
         self.latest_version: str | None = None
 
@@ -132,23 +142,26 @@ class ModelRegistry:
 
         Args:
             version: Version number (e.g., "1", "2")
-            path: Path to version directory
+            path: Path to version directory (models/v{x})
 
         Raises:
             FileNotFoundError: If required files are missing
             ValueError: If validation fails
         """
-        # Check required files exist
+        # Model pickle is in models/v{x}/model.pkl
         model_file = path / "model.pkl"
-        extractor_file = path / "feature_extractor.py"
-        metadata_file = path / "metadata.json"
+
+        # Infrastructure files are in infrastructure/model/v{x}/
+        infra_path = self.infrastructure_path / f"v{version}"
+        extractor_file = infra_path / "feature_extractor.py"
+        metadata_file = infra_path / "metadata.json"
 
         if not model_file.exists():
             raise FileNotFoundError(f"model.pkl not found in {path}")
         if not extractor_file.exists():
-            raise FileNotFoundError(f"feature_extractor.py not found in {path}")
+            raise FileNotFoundError(f"feature_extractor.py not found in {infra_path}")
         if not metadata_file.exists():
-            raise FileNotFoundError(f"metadata.json not found in {path}")
+            raise FileNotFoundError(f"metadata.json not found in {infra_path}")
 
         # Load metadata
         with open(metadata_file) as f:
@@ -200,9 +213,9 @@ class ModelRegistry:
         # Create a custom unpickler that remaps __main__ to our modules
         class CustomUnpickler(pickle.Unpickler):
             def find_class(self, module, name):
-                # Remap __main__.UltraEnsembleModel to app.models.UltraEnsembleModel
+                # Remap __main__.UltraEnsembleModel to infrastructure module
                 if module == "__main__" and name == "UltraEnsembleModel":
-                    from app.models import UltraEnsembleModel
+                    from app.infrastructure.model.ultra_ensemble import UltraEnsembleModel
 
                     return UltraEnsembleModel
                 return super().find_class(module, name)
@@ -324,7 +337,9 @@ class ModelRegistry:
         try:
             if audio_features:
                 # Check if model version has extract_features_with_audio_data method
-                extractor_module_path = model_version.path / "feature_extractor.py"
+                # Feature extractor is in infrastructure path, not model path
+                infra_path = self.infrastructure_path / f"v{version}"
+                extractor_module_path = infra_path / "feature_extractor.py"
                 extractor_module = self._import_extractor(extractor_module_path, version)
 
                 if hasattr(extractor_module, "extract_features_with_audio_data"):

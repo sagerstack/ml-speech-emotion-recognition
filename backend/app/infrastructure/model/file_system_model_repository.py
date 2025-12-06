@@ -20,15 +20,22 @@ from app.infrastructure.observability.logging import get_logger
 class FileSystemModelRepository(ModelRepository):
     """File system-based implementation of ModelRepository.
 
-    This implementation loads models and metadata from a local file system directory structure:
+    This implementation loads models from local file system and metadata from infrastructure:
 
-    models/
-      v1/
+    models/                        # Model pickle files
+      v4/
         model.pkl
-        metadata.json
-      v2/
+      v5/
         model.pkl
+      ...
+
+    app/infrastructure/model/      # Metadata and feature extractors
+      v4/
         metadata.json
+        feature_extractor.py
+      v5/
+        metadata.json
+        feature_extractor.py
       ...
 
     The implementation follows clean architecture principles:
@@ -38,18 +45,27 @@ class FileSystemModelRepository(ModelRepository):
     - Caches loaded models for performance
     """
 
-    def __init__(self, models_dir: str = None):
+    def __init__(self, models_dir: str = None, infrastructure_dir: str = None):
         """Initialize FileSystemModelRepository.
 
         Args:
             models_dir: Path to models directory. Defaults to 'models' in backend root.
+            infrastructure_dir: Path to infrastructure/model directory for metadata.
+                               Defaults to 'app/infrastructure/model' in backend root.
         """
+        backend_root = Path(__file__).parents[3]
+
         if models_dir is None:
             # Default to backend/models directory
-            backend_root = Path(__file__).parents[3]
             self.models_dir = backend_root / "models"
         else:
             self.models_dir = Path(models_dir)
+
+        if infrastructure_dir is None:
+            # Default to backend/app/infrastructure/model directory
+            self.infrastructure_dir = backend_root / "app" / "infrastructure" / "model"
+        else:
+            self.infrastructure_dir = Path(infrastructure_dir)
 
         # Cache for loaded models {version_str: EmotionModel (adapter)}
         self._model_cache: dict[str, EmotionModel] = {}
@@ -354,10 +370,13 @@ class FileSystemModelRepository(ModelRepository):
     def _get_metadata_path(self, version: ModelVersion) -> Path:
         """Get the metadata.json file path for a model version.
 
+        Metadata is stored in the infrastructure/model directory following clean architecture.
+
         Args:
             version: Model version
 
         Returns:
             Path to metadata.json file
         """
-        return self._get_model_dir(version) / "metadata.json"
+        version_str = str(version)
+        return self.infrastructure_dir / version_str / "metadata.json"

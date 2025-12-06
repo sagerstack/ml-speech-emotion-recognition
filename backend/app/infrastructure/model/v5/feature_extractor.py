@@ -1,5 +1,5 @@
 """
-Feature Extractor for Model v4 (Ultra Ensemble Model)
+Feature Extractor for Model v5 (Ultra Ensemble Model)
 
 This extractor uses the EXACT SAME feature extraction logic from training.
 Produces 210 features: Original (162) + Delta MFCCs (20) + Delta-Delta MFCCs (20) + Prosodic (8)
@@ -20,7 +20,7 @@ import numpy as np
 
 def extract_features(audio_bytes: bytes, filename: str) -> np.ndarray:
     """
-    Extract 210 enhanced features from audio bytes for v4 model.
+    Extract 210 enhanced features from audio bytes for v5 model.
 
     This matches the exact feature extraction used during training:
 
@@ -180,7 +180,7 @@ def extract_features_with_audio_data(audio_bytes: bytes, filename: str) -> dict:
         ValueError: If audio cannot be loaded or processed
 
     Example:
-        >>> result = extract_features_with_viz(audio_bytes, "speech.wav")
+        >>> result = extract_features_with_audio_data(audio_bytes, "speech.wav")
         >>> features = result["features"]  # (210,) for model
         >>> viz_data = result["audio_features"]
         >>> mel_spec = viz_data["mel_spectrogram"]  # (128, T) matrix

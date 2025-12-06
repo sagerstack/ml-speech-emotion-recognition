@@ -139,7 +139,7 @@ class TestAudioFeaturesQueryParameter:
         # Act
         with patch("app.api.v2.endpoints.inference.validate_audio_file", return_value=(True, None)):
             response = client.post(
-                "/v2/inference/latest",
+                "/v2/inference/",
                 files={"file": ("test.wav", sample_audio_bytes, "audio/wav")},
             )
 
@@ -169,7 +169,7 @@ class TestAudioFeaturesQueryParameter:
         # Act
         with patch("app.api.v2.endpoints.inference.validate_audio_file", return_value=(True, None)):
             response = client.post(
-                "/v2/inference/latest?audio_features=true",
+                "/v2/inference/?audio_features=true",
                 files={"file": ("test.wav", sample_audio_bytes, "audio/wav")},
             )
 
@@ -204,7 +204,7 @@ class TestAudioFeaturesQueryParameter:
         # Act
         with patch("app.api.v2.endpoints.inference.validate_audio_file", return_value=(True, None)):
             response = client.post(
-                "/v2/inference/latest?audio_features=true",
+                "/v2/inference/?audio_features=true",
                 files={"file": ("test.wav", sample_audio_bytes, "audio/wav")},
             )
 
@@ -242,7 +242,7 @@ class TestAudioFeaturesQueryParameter:
         # Act
         with patch("app.api.v2.endpoints.inference.validate_audio_file", return_value=(True, None)):
             response = client.post(
-                "/v2/inference/latest?audio_features=true",
+                "/v2/inference/?audio_features=true",
                 files={"file": ("test.wav", sample_audio_bytes, "audio/wav")},
             )
 
@@ -280,7 +280,7 @@ class TestAudioFeaturesQueryParameter:
         # Act
         with patch("app.api.v2.endpoints.inference.validate_audio_file", return_value=(True, None)):
             response = client.post(
-                "/v2/inference/latest",
+                "/v2/inference/",
                 files={"file": ("test.wav", sample_audio_bytes, "audio/wav")},
             )
 
@@ -318,7 +318,7 @@ class TestAudioFeaturesQueryParameter:
         with patch("app.api.v2.endpoints.inference.validate_audio_file", return_value=(True, None)):
             with patch("app.api.v2.endpoints.inference.logger") as mock_logger:
                 response = client.post(
-                    "/v2/inference/latest?audio_features=true",
+                    "/v2/inference/?audio_features=true",
                     files={"file": ("test.wav", sample_audio_bytes, "audio/wav")},
                 )
 
@@ -361,7 +361,7 @@ class TestAudioFeaturesQueryParameter:
         # Act
         with patch("app.api.v2.endpoints.inference.validate_audio_file", return_value=(True, None)):
             response = client.post(
-                "/v2/inference/latest?audio_features=true",
+                "/v2/inference/?audio_features=true",
                 files={"file": ("test.wav", sample_audio_bytes, "audio/wav")},
             )
 
@@ -396,7 +396,7 @@ class TestAudioFeaturesQueryParameter:
         # Act
         with patch("app.api.v2.endpoints.inference.validate_audio_file", return_value=(True, None)):
             response = client.post(
-                "/v2/inference/latest",
+                "/v2/inference/",
                 files={"file": ("test.wav", sample_audio_bytes, "audio/wav")},
             )
 

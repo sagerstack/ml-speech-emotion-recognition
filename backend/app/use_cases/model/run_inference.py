@@ -53,7 +53,7 @@ class RunInferenceUseCase:
         self,
         audio_bytes: bytes,
         filename: str,
-        model_version: str = "v4",
+        model_version: str | None = None,
         audio_features: bool = False,
         enable_monitoring: bool = False,
         api_version: str = "v1",
@@ -63,7 +63,7 @@ class RunInferenceUseCase:
         Args:
             audio_bytes: Raw audio file bytes
             filename: Original filename
-            model_version: Model version to use (default: "v4")
+            model_version: Model version to use (default: None = use latest available)
             audio_features: Include audio features data in result (default: False)
             enable_monitoring: Log prediction to monitoring service (default: False)
             api_version: API endpoint version for monitoring (default: "v1")
@@ -77,6 +77,13 @@ class RunInferenceUseCase:
             PredictionFailedError: If prediction fails
         """
         start_time = time.time()
+
+        # Resolve model version to latest if not specified
+        if model_version is None:
+            latest_version = self.model_repository.get_latest_version()
+            if latest_version is None:
+                raise PredictionFailedError("No model versions available")
+            model_version = str(latest_version)
 
         self.logger.info(
             "Starting inference",

@@ -15,7 +15,7 @@ from fastapi import Depends
 from app.domain.model.repositories.model_repository import ModelRepository
 from app.domain.model.services.audio_processor import AudioProcessor
 from app.infrastructure.di.container import get_container
-from app.infrastructure.monitoring.evidently_service import get_monitoring_service, EvidentlyMonitoringService
+from app.infrastructure.monitoring.evidently_service import get_monitoring_service, EvidentlyService
 from app.infrastructure.observability.logging import get_logger
 from app.use_cases.model.get_model_info import GetModelInfoUseCase
 from app.use_cases.model.get_model_versions import GetModelVersionsUseCase
@@ -45,7 +45,7 @@ def get_model_repository() -> ModelRepository:
 
 
 def get_log_prediction_for_monitoring_use_case(
-    monitoring_service: EvidentlyMonitoringService = Depends(get_monitoring_service),
+    monitoring_service: EvidentlyService = Depends(get_monitoring_service),
 ) -> LogPredictionForMonitoringUseCase:
     """FastAPI dependency for LogPredictionForMonitoringUseCase.
 

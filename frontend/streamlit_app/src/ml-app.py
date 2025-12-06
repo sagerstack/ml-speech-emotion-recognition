@@ -21,7 +21,7 @@ from api_client import ML_APP_BASE_URL
 logger = logging.getLogger(__name__)
 
 st.set_page_config(
-    page_title="Codex Iteration 5 · Speech Emotion Lab",
+    page_title="ML-SER",
     layout="wide",
 )
 
@@ -29,6 +29,7 @@ BASE_DIR = Path(__file__).resolve().parent
 HISTORY_PAGE = BASE_DIR / "pages" / "1_History.py"
 METRICS_PAGE = BASE_DIR / "pages" / "2_Metrics.py"
 MONITORING_PAGE = BASE_DIR / "pages" / "3_Monitoring.py"
+MODEL_PERFORMANCE_PAGE = BASE_DIR / "pages" / "4_Model Performance.py"
 
 # Configuration
 ENABLE_MOCK_MODE = os.getenv("ENABLE_MOCK_MODE", "false").lower() == "true"
@@ -36,7 +37,7 @@ FALLBACK_TO_MOCK = os.getenv("FALLBACK_TO_MOCK", "true").lower() == "true"
 SHOW_DEBUG_INFO = os.getenv("SHOW_DEBUG_INFO", "true").lower() == "true"
 
 # Initialize backend health status
-@st.cache_data(ttl=30)  # Cache for 30 seconds, then auto-refresh
+@st.cache_data(ttl=30, show_spinner=False)  # Cache for 30 seconds, then auto-refresh without UI spinner
 def get_backend_health_cached():
     """Cache backend health check with 30-second TTL to auto-refresh status"""
     return get_backend_health()
@@ -56,10 +57,10 @@ def get_active_backend():
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def fetch_model_metadata():
-    """Fetch latest model metadata from backend API"""
+    """Fetch latest model metadata from backend API using v2 endpoint"""
     try:
         response = requests.get(
-            f"{ML_APP_BASE_URL}/v1/models/local/latest",
+            f"{ML_APP_BASE_URL}/v2/inference/info",
             timeout=15  # Increased timeout for EKS deployment
         )
         if response.status_code == 200:
@@ -113,6 +114,7 @@ def display_model_metadata_card():
     if metadata:
         model_name = metadata.get('model_name', 'N/A')
         version = metadata.get('version', 'N/A')
+        version_display = f"v{str(version).lstrip('v')}" if version != 'N/A' else 'N/A'
         model_type = metadata.get('model_type', 'N/A')
         features = metadata.get('feature_dimension', 'N/A')
         classes = metadata.get('num_classes', 'N/A')
@@ -126,11 +128,12 @@ def display_model_metadata_card():
                 <span style="color: #10b981; font-size: 18px;">●</span>
                 <span>Model Online</span>
             </div>
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px;
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 16px;
                         font-size: 12px;">
-                <div>• <strong>Model Version:</strong> v{version}</div>
+                <div>• <strong>Model Version:</strong> {version_display}</div>
                 <div>• <strong>Model Name:</strong> {model_name}</div>
                 <div>• <strong>Training Dataset:</strong> {dataset}</div>
+                <div>• <strong>Features Extracted:</strong> {features}</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -352,39 +355,47 @@ def stage_audio_recording() -> AnalysisResult | None:
         display_model_metadata_card()
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Input audio selection toggle
-        audio_input_mode = st.radio(
-            "Select Input Audio Mode",
-            options=["Audio File", "Live Recording"],
-            horizontal=True,
-            key="audio_input_mode",
-        )
+        # Input mode toggle and input control in one row
+        col_mode, col_input = st.columns([1, 2], gap="medium")
+        with col_mode:
+            audio_input_mode = st.radio(
+                "Select Input Audio Mode",
+                options=["Audio File", "Live Recording"],
+                horizontal=True,
+                key="audio_input_mode",
+            )
+        with col_input:
+            if audio_input_mode == "Audio File":
+                upload = st.file_uploader(
+                    "Upload Audio File",
+                    type=["wav", "mp3", "flac", "m4a"],
+                    key="iter6-upload",
+                )
+                recording = None
+            else:  # Live Recording
+                recording = st.audio_input("Record Live Audio", key="iter6-record")
+                upload = None
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Initialize upload and recording variables
-        upload = None
-        recording = None
-
-        # Show only the selected input control
-        if audio_input_mode == "Audio File":
-            upload = st.file_uploader(
-                "Upload Audio File",
-                type=["wav", "mp3", "flac", "m4a"],
-                key="iter6-upload",
+        # Playback + action row (right-align action)
+        action_cols = st.columns([4, 1])
+        with action_cols[0]:
+            if upload:
+                st.audio(upload)
+            elif recording:
+                st.audio(recording)
+            else:
+                st.caption("No audio selected yet.")
+        with action_cols[1]:
+            action = st.button(
+                "🚀 Analyze Audio",
+                key="iter5-launch-btn",
+                type="primary",
+                use_container_width=True,
             )
-        else:  # Live Recording
-            recording = st.audio_input("Record Live Audio", key="iter6-record")
-
-        # Single playback control for the selected audio
-        if upload:
-            st.audio(upload)
-        elif recording:
-            st.audio(recording)
 
         # Always use local inference endpoint
         engine = "local"
-
-        action = st.button("🚀 Analyze Audio", key="iter5-launch-btn", type="primary")
 
         if action:
             if not upload and not recording:
@@ -466,11 +477,21 @@ def stage_feature_analysis(feature_summary: dict | None):
         if status_message:
             st.success(status_message)
 
-        # Audio Player Row
+        # Audio Player + Predict action row
         audio_data = st.session_state.get(AUDIO_DATA_KEY)
+        predict_action = False
         if audio_data:
             st.markdown("##### Selected Audio Sample")
-            st.audio(audio_data["bytes"], format="audio/wav")
+            row_cols = st.columns([4, 1])
+            with row_cols[0]:
+                st.audio(audio_data["bytes"], format="audio/wav")
+            with row_cols[1]:
+                predict_action = st.button(
+                    "🚀 Predict Emotion",
+                    key="predict-emotion-btn",
+                    type="primary",
+                    use_container_width=True,
+                )
             st.markdown("---")
 
         col1, col2 = st.columns([1, 1])
@@ -625,7 +646,7 @@ def stage_feature_analysis(feature_summary: dict | None):
 
         st.markdown(table_html, unsafe_allow_html=True)
 
-        if st.button("🚀 Predict Emotion", key="predict-emotion-btn", type="primary"):
+        if predict_action:
             audio_blob = st.session_state.get(AUDIO_DATA_KEY)
             if not audio_blob:
                 st.warning("Analyze audio first to enable prediction.", icon="⚠️")
@@ -765,7 +786,7 @@ def get_mock_model_metadata() -> dict:
 
 def fetch_latest_model_metadata() -> dict | None:
     """
-    Fetch model metadata from the backend API.
+    Fetch model metadata from the backend API using v2 endpoint.
 
     Returns:
         dict: Model metadata or None on error
@@ -773,7 +794,7 @@ def fetch_latest_model_metadata() -> dict | None:
     try:
         import requests
         response = requests.get(
-            f"{ML_APP_BASE_URL}/v1/models/local/latest",
+            f"{ML_APP_BASE_URL}/v2/inference/info",
             timeout=5
         )
         if response.status_code == 200:
@@ -837,15 +858,22 @@ def _emotion_color(emotion: str) -> str:
 
 def _latency_bar(latency_breakdown: dict[str, float], processing_time_ms: float):
     """Stacked horizontal bar for latency phases."""
-    phases = latency_breakdown or {
+    default_phases = {
         "ingest": processing_time_ms * 0.1 / 1000,
         "feature": processing_time_ms * 0.4 / 1000,
         "inference": processing_time_ms * 0.4 / 1000,
         "post": processing_time_ms * 0.1 / 1000,
     }
+    phases = latency_breakdown or default_phases
+
+    ordered_stages = ["ingest", "feature", "inference", "post"]
+    phase_items = [
+        (stage, phases.get(stage, default_phases.get(stage, 0))) for stage in ordered_stages
+    ]
+
     colors = ["#0ea5e9", "#22c55e", "#f59e0b", "#a855f7"]
     fig = go.Figure()
-    for idx, (name, seconds) in enumerate(phases.items()):
+    for idx, (name, seconds) in enumerate(phase_items):
         fig.add_trace(
             go.Bar(
                 x=[seconds * 1000],
@@ -858,11 +886,20 @@ def _latency_bar(latency_breakdown: dict[str, float], processing_time_ms: float)
         )
     fig.update_layout(
         barmode="stack",
-        height=110,
-        margin=dict(l=70, r=20, t=10, b=20),
+        height=140,
+        margin=dict(l=70, r=20, t=10, b=40),
         template="plotly_white",
         xaxis=dict(title="ms", tickformat=".0f"),
-        showlegend=False,
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=-0.35,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=11),
+        ),
+        legend_traceorder="normal",
     )
     return fig
 
@@ -921,6 +958,96 @@ def _probability_table(probabilities: dict[str, float], highlight_top: bool = Tr
     st.dataframe(df, use_container_width=True, hide_index=True, column_config={"Probability": st.column_config.NumberColumn(format="%.3f")})
 
 
+def _submit_feedback(prediction_id: str, actual_emotion: str) -> tuple[bool, str]:
+    """Send feedback to backend monitoring endpoint."""
+    try:
+        resp = requests.post(
+            f"{ML_APP_BASE_URL}/v1/monitoring/feedback/{prediction_id}",
+            json={"actual_emotion": actual_emotion},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return True, "Thanks for your feedback!"
+    except requests.RequestException as exc:
+        return False, str(exc)
+
+
+def _render_feedback_panel(
+    prediction_id: str | None,
+    predicted_emotion: str,
+    probabilities: dict[str, float],
+    use_real_backend: bool,
+) -> None:
+    st.markdown("**Prediction Feedback**")
+    st.caption("Tell us the actual emotion to help monitor drift and improve the model.")
+
+    if not prediction_id:
+        st.info("Feedback unavailable: missing prediction ID from the backend.")
+        return
+
+    options = [e.lower() for e in probabilities.keys()] or ["angry", "disgust", "fear", "happy", "neutral", "sad"]
+    default_idx = options.index(predicted_emotion) if predicted_emotion in options else 0
+    select_key = f"feedback_select_{prediction_id}"
+    submit_key = f"feedback_submit_{prediction_id}"
+    submitted_flag = f"feedback_sent_{prediction_id}"
+
+    sel_col, _ = st.columns([1, 1])
+    with sel_col:
+        actual_emotion = st.selectbox(
+            "Actual emotion (ground truth)",
+            options=options,
+            index=default_idx,
+            key=select_key,
+            format_func=lambda x: x.title(),
+        )
+
+    status_placeholder = st.empty()
+    disabled = st.session_state.get(submitted_flag, False)
+    btn_cols = st.columns([2, 1])
+    with btn_cols[0]:
+        if st.button("📝 Submit Feedback", key=submit_key, disabled=disabled, type="primary"):
+            if not use_real_backend:
+                # In mock mode, simulate success without hitting the API
+                st.session_state[submitted_flag] = True
+                status_placeholder.success("Feedback recorded (mock mode).")
+            else:
+                ok, msg = _submit_feedback(prediction_id, actual_emotion)
+                if ok:
+                    st.session_state[submitted_flag] = True
+                    status_placeholder.success(msg)
+                else:
+                    status_placeholder.error(f"Failed to send feedback: {msg}")
+    with btn_cols[1]:
+        st.button("🏠 Home", key=f"iter5-home-btn-{prediction_id}", type="primary", on_click=_reset_workflow_state)
+
+
+def _reset_workflow_state():
+    """Clear session state and jump back to Step 1 for a fresh run."""
+    keys_to_clear = [
+        PAGE_KEY,
+        STATUS_KEY,
+        AUDIO_DATA_KEY,
+        AUDIO_FEATURES_KEY,
+        VARIANT_KEY,
+        "iter6-upload",
+        "iter6-record",
+        "audio_input_mode",
+    ]
+    for k in keys_to_clear:
+        st.session_state.pop(k, None)
+
+    # Clear any feedback submission flags
+    for k in list(st.session_state.keys()):
+        if str(k).startswith("feedback_"):
+            st.session_state.pop(k, None)
+
+    # Reset tab selection state for stac tabs and force Step 1
+    st.session_state.pop("iter5-tabs", None)
+    # Reset to Step 1
+    st.session_state[TAB_INDEX_KEY] = 0
+    st.rerun()
+
+
 def render_variant_compact_cards(payload: dict):
     """Variant 1: Compact two-column with hero and stacked cards."""
     left, right = st.columns([1, 1.2])
@@ -975,16 +1102,21 @@ def stage_inference_results(result: AnalysisResult | None):
         processing_time_ms = processing_time_sec * 1000  # Convert to milliseconds
 
         model_version = metadata.get("version", "2")
+        model_version_display = f"v{str(model_version).lstrip('v')}"
         icon_name = get_emotion_icon(emotion)
         perf_color, perf_label = get_performance_color(processing_time_ms)
+        prediction_id = getattr(result, "prediction_id", None)
 
         audio_blob = st.session_state.get(AUDIO_DATA_KEY, {})
-        # Input data preview
-        with st.container(border=True):
-            st.markdown("**Input Data**")
-            st.markdown(f"**{audio_blob.get('filename', getattr(result, 'source', 'Audio Input'))}**")
-            if audio_blob.get("bytes"):
-                st.audio(audio_blob["bytes"])
+        # Input data preview (single row with filename and audio)
+        audio_label = audio_blob.get("filename", getattr(result, "source", "Audio Input"))
+        audio_bytes = audio_blob.get("bytes")
+        row = st.columns([2, 5])
+        with row[0]:
+            st.markdown(f"**{audio_label}**")
+        with row[1]:
+            if audio_bytes:
+                st.audio(audio_bytes)
             else:
                 st.caption("Audio preview unavailable.")
 
@@ -1003,9 +1135,36 @@ def stage_inference_results(result: AnalysisResult | None):
             "audio_label": audio_blob.get("filename", getattr(result, "source", "Audio Input")),
             "audio_bytes": audio_blob.get("bytes"),
             "result": result,
+            "prediction_id": prediction_id,
         }
 
-        render_variant_compact_cards(payload)
+        # Row 1: primary emotion + metrics
+        r1c1, r1c2 = st.columns([1, 1])
+        with r1c1:
+            _hero_block(payload["emotion"], payload["icon_name"], payload["confidence"])
+        with r1c2:
+            metric_col1, metric_col2, metric_col3 = st.columns(3)
+            metric_col1.metric("Confidence", f"{payload['confidence']:.0%}")
+            metric_col2.metric("Processing Time", f"{payload['processing_time_ms']:.1f} ms")
+            metric_col3.metric("Model Version", model_version_display)
+
+        # Row 2: charts + feedback
+        r2c1, r2c2 = st.columns([1.5, 1])
+        with r2c1:
+            st.plotly_chart(_probability_hbar(payload["probabilities"], accent="#f97316"), use_container_width=True)
+            st.markdown("**Latency**")
+            st.plotly_chart(
+                _latency_bar(payload.get("latency_breakdown", {}), payload["processing_time_ms"]),
+                use_container_width=True,
+            )
+        with r2c2:
+            _render_feedback_panel(
+                prediction_id=payload.get("prediction_id"),
+                predicted_emotion=payload["emotion"],
+                probabilities=payload["probabilities"],
+                use_real_backend=payload["use_real_backend"],
+            )
+
 
 
 def home_page():
@@ -1049,12 +1208,8 @@ def home_page():
                 # Clear the cached health check to force a fresh check
                 get_backend_health_cached.clear()
                 with st.spinner("Testing API connection..."):
-                    healthy = get_backend_health()
-                    if healthy:
-                        st.success("✅ API is healthy! Status will refresh automatically.")
-                        st.rerun()  # Rerun to update the UI with new health status
-                    else:
-                        st.error("❌ API is not responding.")
+                    get_backend_health()
+                    st.rerun()  # Rerun to refresh the primary status banner only
         
     current_index = st.session_state.get(TAB_INDEX_KEY, 0)
     tab_choice = stac.tabs(
@@ -1101,6 +1256,11 @@ if __name__ == "__main__":
                 str(MONITORING_PAGE),
                 title="Monitoring",
                 icon="🔍",
+            ),
+            st.Page(
+                str(MODEL_PERFORMANCE_PAGE),
+                title="Model Performance",
+                icon="🧭",
             ),
         ],
         position="sidebar",

@@ -23,7 +23,7 @@ from opentelemetry import trace
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.routing import Match
 
-from app.utils.config import get_settings
+from app.infrastructure.config import get_settings
 
 
 def add_trace_context(

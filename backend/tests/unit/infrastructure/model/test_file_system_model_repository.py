@@ -30,16 +30,34 @@ class TestFileSystemModelRepository:
     """Test suite for FileSystemModelRepository."""
 
     @pytest.fixture
-    def models_dir(self) -> Path:
-        """Create temporary models directory."""
+    def test_dirs(self) -> tuple[Path, Path]:
+        """Create temporary models and infrastructure directories.
+
+        Returns:
+            Tuple of (models_dir, infrastructure_dir)
+        """
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
 
-            # Create v4 model directory structure
-            v4_dir = base_path / "v4"
-            v4_dir.mkdir()
+            # Create models directory structure (for model.pkl)
+            models_path = base_path / "models"
+            models_path.mkdir()
 
-            # Create metadata.json
+            v4_models_dir = models_path / "v4"
+            v4_models_dir.mkdir()
+
+            # Create a mock model.pkl (not a real model to save space)
+            mock_model = SimpleMockModel()
+            joblib.dump(mock_model, v4_models_dir / "model.pkl")
+
+            # Create infrastructure directory structure (for metadata.json)
+            infra_path = base_path / "infrastructure"
+            infra_path.mkdir()
+
+            v4_infra_dir = infra_path / "v4"
+            v4_infra_dir.mkdir()
+
+            # Create metadata.json in infrastructure path
             metadata = {
                 "version": "4",
                 "model_name": "Ultra Ensemble Model v4",
@@ -52,19 +70,19 @@ class TestFileSystemModelRepository:
                 "num_classes": 6,
             }
 
-            with open(v4_dir / "metadata.json", "w") as f:
+            with open(v4_infra_dir / "metadata.json", "w") as f:
                 json.dump(metadata, f)
 
-            # Create a mock model.pkl (not a real model to save space)
-            mock_model = SimpleMockModel()
-            joblib.dump(mock_model, v4_dir / "model.pkl")
-
-            yield base_path
+            yield models_path, infra_path
 
     @pytest.fixture
-    def repository(self, models_dir: Path) -> FileSystemModelRepository:
+    def repository(self, test_dirs: tuple[Path, Path]) -> FileSystemModelRepository:
         """Create FileSystemModelRepository instance."""
-        return FileSystemModelRepository(models_dir=str(models_dir))
+        models_dir, infrastructure_dir = test_dirs
+        return FileSystemModelRepository(
+            models_dir=str(models_dir),
+            infrastructure_dir=str(infrastructure_dir)
+        )
 
     # Test load_model
     def test_load_model_returns_model(self, repository: FileSystemModelRepository):
@@ -171,33 +189,57 @@ class TestFileSystemModelRepository:
             assert latest is None
 
     # Test error handling
-    def test_load_model_raises_error_for_missing_model_file(self, models_dir: Path):
+    def test_load_model_raises_error_for_missing_model_file(
+        self, test_dirs: tuple[Path, Path]
+    ):
         """Test that load_model raises error if model.pkl is missing."""
-        # Create v5 directory without model.pkl
-        v5_dir = models_dir / "v5"
-        v5_dir.mkdir()
+        models_dir, infra_dir = test_dirs
+
+        # Create v5 model directory without model.pkl
+        v5_models_dir = models_dir / "v5"
+        v5_models_dir.mkdir()
+
+        # Create metadata in infrastructure
+        v5_infra_dir = infra_dir / "v5"
+        v5_infra_dir.mkdir()
 
         metadata = {"version": "5", "model_type": "Test", "feature_dimension": 210}
-        with open(v5_dir / "metadata.json", "w") as f:
+        with open(v5_infra_dir / "metadata.json", "w") as f:
             json.dump(metadata, f)
 
-        repo = FileSystemModelRepository(models_dir=str(models_dir))
+        repo = FileSystemModelRepository(
+            models_dir=str(models_dir),
+            infrastructure_dir=str(infra_dir)
+        )
         version = ModelVersion.from_string("v5")
 
         with pytest.raises(ModelNotFoundError):
             repo.load_model(version)
 
-    def test_get_model_info_handles_invalid_metadata(self, models_dir: Path):
+    def test_get_model_info_handles_invalid_metadata(
+        self, test_dirs: tuple[Path, Path]
+    ):
         """Test that get_model_info handles invalid metadata gracefully."""
-        # Create v5 directory with invalid metadata
-        v5_dir = models_dir / "v5"
-        v5_dir.mkdir()
+        models_dir, infra_dir = test_dirs
+
+        # Create v5 model directory with model.pkl
+        v5_models_dir = models_dir / "v5"
+        v5_models_dir.mkdir()
+        mock_model = SimpleMockModel()
+        joblib.dump(mock_model, v5_models_dir / "model.pkl")
+
+        # Create v5 infrastructure with invalid metadata
+        v5_infra_dir = infra_dir / "v5"
+        v5_infra_dir.mkdir()
 
         # Write invalid JSON
-        with open(v5_dir / "metadata.json", "w") as f:
+        with open(v5_infra_dir / "metadata.json", "w") as f:
             f.write("invalid json {")
 
-        repo = FileSystemModelRepository(models_dir=str(models_dir))
+        repo = FileSystemModelRepository(
+            models_dir=str(models_dir),
+            infrastructure_dir=str(infra_dir)
+        )
         version = ModelVersion.from_string("v5")
 
         # Should return None instead of crashing

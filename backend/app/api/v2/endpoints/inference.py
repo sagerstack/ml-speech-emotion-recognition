@@ -12,7 +12,6 @@ Endpoints:
 - GET /v2/inference/{version}/info - Get info for specific model version
 - GET /v2/inference/info - Get info for latest model version
 - POST /v2/inference - Inference using latest model
-- POST /v2/inference/latest - Inference using latest model (deprecated, use /v2/inference)
 """
 
 import time
@@ -27,13 +26,15 @@ from app.domain.model.exceptions.prediction_failed_error import PredictionFailed
 from app.infrastructure.config.feature_flags import FeatureFlags, get_feature_flags
 from app.infrastructure.di.providers import (
     get_model_info_use_case,
+    get_model_repository,
     get_model_versions_use_case,
     get_run_inference_use_case,
 )
+from app.domain.model.repositories.model_repository import ModelRepository
 from app.use_cases.model.get_model_info import GetModelInfoUseCase
 from app.use_cases.model.get_model_versions import GetModelVersionsUseCase
 from app.use_cases.model.run_inference import RunInferenceUseCase
-from app.utils.file_validation import validate_audio_file
+from app.infrastructure.validation import validate_audio_file
 from app.infrastructure.observability.logging import get_logger
 
 router = APIRouter()
@@ -216,6 +217,7 @@ async def get_model_info_by_version(
 @router.get("/info")
 async def get_latest_model_info(
     get_info_use_case: GetModelInfoUseCase = Depends(get_model_info_use_case),
+    model_repository: ModelRepository = Depends(get_model_repository),
 ) -> dict[str, Any]:
     """
     Get information for the latest model version (v2 API - Clean Architecture).
@@ -227,10 +229,11 @@ async def get_latest_model_info(
 
     Args:
         get_info_use_case: Injected use case (via DI)
+        model_repository: Injected model repository (via DI)
 
     Returns:
         {
-            "version": "v4",
+            "version": "v5",
             "model_type": "UltraEnsembleModel",
             "feature_dimension": 210,
             "available": true,
@@ -243,8 +246,9 @@ async def get_latest_model_info(
     try:
         logger.info("v2 get latest model info request received")
 
-        # Execute use case for latest version (v4)
-        model_info = get_info_use_case.execute("v4")
+        # Auto-detect latest model version
+        latest_version = model_repository.get_latest_version()
+        model_info = get_info_use_case.execute(str(latest_version))
 
         if model_info is None:
             MODEL_INFO_REQUESTS_V2.labels(endpoint="latest_info", success=False).inc()
@@ -408,7 +412,7 @@ async def infer_latest(
         inference = run_inference_use_case.execute(
             audio_bytes=audio_bytes,
             filename=file.filename or "unknown.wav",
-            model_version="v4",  # Latest version
+            model_version=None,  # Auto-detect latest version
             audio_features=should_include_features,
             enable_monitoring=monitoring_enabled,
             api_version="v2",  # v2 API endpoint
@@ -491,37 +495,3 @@ async def infer_latest(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}",
         )
-
-
-@router.post("/latest")
-async def infer_latest_deprecated(
-    file: UploadFile = File(...),
-    audio_features: bool = Query(
-        default=False,
-        description="Include audio features data (mel spectrogram, chroma, MFCCs, pitch contour). Requires ENABLE_INFERENCE_AUDIO_FEATURES=true"
-    ),
-    run_inference_use_case: RunInferenceUseCase = Depends(get_run_inference_use_case),
-    feature_flags: FeatureFlags = Depends(get_feature_flags),
-) -> dict[str, Any]:
-    """
-    Infer emotion using the latest model version (v2 API - DEPRECATED).
-
-    DEPRECATED: This endpoint is deprecated. Use POST /v2/inference instead.
-    This endpoint is maintained for backward compatibility only.
-
-    Monitoring is always enabled for v2 API.
-
-    Args:
-        file: Audio file (WAV, MP3, M4A)
-        audio_features: Include audio features data in response (requires feature flag)
-        run_inference_use_case: Injected use case (via DI)
-        feature_flags: Feature flags service (via DI)
-
-    Returns:
-        Same response format as POST /v2/inference
-
-    Raises:
-        HTTPException: 404 if no models found, 400 for invalid audio, 500 for errors
-    """
-    # Delegate to the main inference endpoint
-    return await infer_latest(file, audio_features, run_inference_use_case, feature_flags)

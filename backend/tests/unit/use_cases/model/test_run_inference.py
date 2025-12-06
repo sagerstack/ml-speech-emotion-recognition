@@ -13,6 +13,7 @@ from app.domain.model.exceptions.invalid_audio_error import InvalidAudioError
 from app.domain.model.exceptions.model_not_found_error import ModelNotFoundError
 from app.domain.model.exceptions.prediction_failed_error import PredictionFailedError
 from app.domain.model.value_objects.emotion import Emotion
+from app.domain.model.value_objects.model_version import ModelVersion
 from app.use_cases.model.run_inference import RunInferenceUseCase
 
 
@@ -69,6 +70,8 @@ class TestRunInferenceUseCase:
         )
 
         repository.load_model = Mock(return_value=mock_model)
+        # Mock get_latest_version for auto-detect latest version feature
+        repository.get_latest_version = Mock(return_value=ModelVersion.from_string("v4"))
         return repository
 
     @pytest.fixture
@@ -400,6 +403,8 @@ class TestRunInferenceUseCaseWithMonitoring:
             }
         )
         repository.load_model = Mock(return_value=mock_model)
+        # Mock get_latest_version for auto-detect latest version feature
+        repository.get_latest_version = Mock(return_value=ModelVersion.from_string("v4"))
         return repository
 
     @pytest.fixture

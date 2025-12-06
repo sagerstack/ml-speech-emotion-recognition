@@ -279,9 +279,9 @@ class TestLibrosaAudioProcessor:
         assert isinstance(audio_features["waveform"], list)
         assert len(audio_features["waveform"]) > 0
 
-        # Check mel_spectrogram shape (128 x T)
+        # Check mel_spectrogram shape (64 x T) - 64 bands for frontend compatibility
         assert isinstance(audio_features["mel_spectrogram"], list)
-        assert len(audio_features["mel_spectrogram"]) == 128
+        assert len(audio_features["mel_spectrogram"]) == 64
 
         # Check chroma shape (12 x T)
         assert isinstance(audio_features["chroma"], list)

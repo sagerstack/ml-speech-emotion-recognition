@@ -63,9 +63,12 @@ class UltraEnsembleModel:
         """
         all_probas = dict()
 
+        # Handle models pickled without selector attribute (v5 notebook compatibility)
+        selector = getattr(self, "selector", None)
+
         for name, model in self.models.items():
-            if name == "stacking_selected" and self.selector is not None:
-                X_sel = self.selector.transform(X)
+            if name == "stacking_selected" and selector is not None:
+                X_sel = selector.transform(X)
                 all_probas[name] = model.predict_proba(X_sel)
             else:
                 all_probas[name] = model.predict_proba(X)

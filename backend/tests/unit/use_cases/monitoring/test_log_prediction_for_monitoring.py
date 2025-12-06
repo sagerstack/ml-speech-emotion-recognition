@@ -7,7 +7,7 @@ import pytest
 
 from app.domain.model.value_objects.emotion import Emotion
 from app.domain.monitoring.prediction_buffer import PredictionRecord
-from app.infrastructure.monitoring.evidently_service import EvidentlyMonitoringService
+from app.infrastructure.monitoring.evidently_service import EvidentlyService
 from app.use_cases.monitoring.log_prediction_for_monitoring import (
     LogPredictionForMonitoringUseCase,
 )
@@ -18,8 +18,8 @@ class TestLogPredictionForMonitoringUseCase:
 
     @pytest.fixture
     def mock_monitoring_service(self):
-        """Create mock EvidentlyMonitoringService."""
-        service = MagicMock(spec=EvidentlyMonitoringService)
+        """Create mock EvidentlyService."""
+        service = MagicMock(spec=EvidentlyService)
         service.log_prediction.return_value = 10  # Mock buffer length
         return service
 
@@ -52,7 +52,7 @@ class TestLogPredictionForMonitoringUseCase:
         features = {"feature_1": 0.5, "feature_2": 1.2}
         audio_bytes = b"fake_audio_data"
         filename = "test.wav"
-        model_version = "v4"
+        model_version = "v5"
 
         # Act
         prediction_id = use_case.execute(
@@ -101,7 +101,7 @@ class TestLogPredictionForMonitoringUseCase:
         features = {"feature_1": 0.5, "feature_2": 1.2}
         audio_bytes = b"fake_audio_data"
         filename = "test.wav"
-        model_version = "v4"
+        model_version = "v5"
         api_version = "v2"
 
         # Act
@@ -149,7 +149,7 @@ class TestLogPredictionForMonitoringUseCase:
         features = {"feature_1": 0.5}
         audio_bytes = b"data"
         filename = "test.wav"
-        model_version = "v4"
+        model_version = "v5"
 
         # Act
         prediction_id = use_case.execute(
@@ -219,7 +219,7 @@ class TestLogPredictionForMonitoringUseCase:
         features = {"feature_1": 1.0}
         audio_bytes = b"data"
         filename = "sad.wav"
-        model_version = "v4"
+        model_version = "v5"
 
         # Act
         use_case.execute(
@@ -237,3 +237,124 @@ class TestLogPredictionForMonitoringUseCase:
         record = call_args[0]
         assert record.predicted_emotion == "sad"  # String, not Emotion enum
         assert isinstance(record.predicted_emotion, str)
+
+    def test_execute_triggers_auto_report_at_threshold(
+        self, mock_monitoring_service, mock_logger
+    ):
+        """Test that auto-report is triggered when buffer reaches threshold."""
+        # Arrange - mock should_generate_report to return True
+        mock_monitoring_service.should_generate_report.return_value = True
+        mock_report_info = MagicMock()
+        mock_report_info.name = "evidently_report_test"
+        mock_report_info.html_path = "/path/to/report.html"
+        mock_monitoring_service.generate_report.return_value = mock_report_info
+
+        use_case = LogPredictionForMonitoringUseCase(
+            monitoring_service=mock_monitoring_service,
+            logger=mock_logger,
+        )
+
+        emotion = Emotion.HAPPY
+        probabilities = {
+            Emotion.ANGRY: 0.01,
+            Emotion.DISGUST: 0.02,
+            Emotion.FEAR: 0.03,
+            Emotion.HAPPY: 0.92,
+            Emotion.NEUTRAL: 0.01,
+            Emotion.SAD: 0.01,
+        }
+
+        # Act
+        use_case.execute(
+            emotion=emotion,
+            confidence=0.92,
+            probabilities=probabilities,
+            features={"feature_1": 0.5},
+            audio_bytes=b"data",
+            filename="test.wav",
+            model_version="v4",
+        )
+
+        # Assert - generate_report should have been called
+        mock_monitoring_service.should_generate_report.assert_called_once_with(10)
+        mock_monitoring_service.generate_report.assert_called_once()
+
+    def test_execute_does_not_trigger_auto_report_below_threshold(
+        self, mock_monitoring_service, mock_logger
+    ):
+        """Test that auto-report is NOT triggered when below threshold."""
+        # Arrange - mock should_generate_report to return False
+        mock_monitoring_service.should_generate_report.return_value = False
+
+        use_case = LogPredictionForMonitoringUseCase(
+            monitoring_service=mock_monitoring_service,
+            logger=mock_logger,
+        )
+
+        emotion = Emotion.HAPPY
+        probabilities = {
+            Emotion.ANGRY: 0.01,
+            Emotion.DISGUST: 0.02,
+            Emotion.FEAR: 0.03,
+            Emotion.HAPPY: 0.92,
+            Emotion.NEUTRAL: 0.01,
+            Emotion.SAD: 0.01,
+        }
+
+        # Act
+        use_case.execute(
+            emotion=emotion,
+            confidence=0.92,
+            probabilities=probabilities,
+            features={"feature_1": 0.5},
+            audio_bytes=b"data",
+            filename="test.wav",
+            model_version="v4",
+        )
+
+        # Assert - generate_report should NOT have been called
+        mock_monitoring_service.should_generate_report.assert_called_once_with(10)
+        mock_monitoring_service.generate_report.assert_not_called()
+
+    def test_auto_report_failure_does_not_break_prediction(
+        self, mock_monitoring_service, mock_logger
+    ):
+        """Test that auto-report generation failure doesn't affect inference."""
+        # Arrange - mock should_generate_report to return True, but generate_report fails
+        mock_monitoring_service.should_generate_report.return_value = True
+        mock_monitoring_service.generate_report.side_effect = Exception("Report generation failed")
+
+        use_case = LogPredictionForMonitoringUseCase(
+            monitoring_service=mock_monitoring_service,
+            logger=mock_logger,
+        )
+
+        emotion = Emotion.HAPPY
+        probabilities = {
+            Emotion.ANGRY: 0.01,
+            Emotion.DISGUST: 0.02,
+            Emotion.FEAR: 0.03,
+            Emotion.HAPPY: 0.92,
+            Emotion.NEUTRAL: 0.01,
+            Emotion.SAD: 0.01,
+        }
+
+        # Act - should not raise exception
+        prediction_id = use_case.execute(
+            emotion=emotion,
+            confidence=0.92,
+            probabilities=probabilities,
+            features={"feature_1": 0.5},
+            audio_bytes=b"data",
+            filename="test.wav",
+            model_version="v4",
+        )
+
+        # Assert - prediction_id should still be returned successfully
+        assert prediction_id is not None
+        assert len(prediction_id) == 36  # UUID format
+
+        # Verify warning was logged for failed report generation
+        warning_calls = [call for call in mock_logger.warning.call_args_list
+                        if "Auto-report generation failed" in str(call)]
+        assert len(warning_calls) == 1

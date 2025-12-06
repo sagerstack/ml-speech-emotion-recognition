@@ -12,7 +12,7 @@ Feature flags enable safe rollout of new features:
 
 from functools import lru_cache
 
-from app.utils.config import get_settings
+from app.infrastructure.config import get_settings
 from app.infrastructure.observability.logging import get_logger
 
 logger = get_logger(__name__)

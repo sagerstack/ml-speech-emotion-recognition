@@ -8,7 +8,7 @@ from threading import Lock
 
 import pandas as pd
 
-from app.utils.config import get_settings
+from app.infrastructure.config import get_settings
 from app.infrastructure.observability.logging import get_logger
 
 logger = get_logger(__name__)

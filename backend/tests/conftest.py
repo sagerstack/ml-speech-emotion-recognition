@@ -37,7 +37,7 @@ os.environ.setdefault("AWS_REGION", "us-east-1")
 
 from app.infrastructure.audio.processor import AudioFeatures, AudioMetadata, AudioProcessor
 from app.main import app
-from app.utils.config import Settings
+from app.infrastructure.config import Settings
 from app.infrastructure.observability.logging import get_logger, setup_logging
 
 # Configure logging for tests

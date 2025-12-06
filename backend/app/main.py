@@ -33,7 +33,7 @@ from app.infrastructure.observability.metrics import (
     metrics_endpoint,
 )
 from app.infrastructure.observability.tracing import setup_tracing
-from app.utils.config import get_settings
+from app.infrastructure.config import get_settings
 
 # Initialize settings and logging
 settings = get_settings()
@@ -112,8 +112,8 @@ app.add_middleware(PrometheusMiddleware, app_name=APP_NAME)
 app.add_middleware(RequestLoggingMiddleware, app_name=APP_NAME)
 
 # Include API routers
-app.include_router(api_router, prefix=settings.api_v1_str)  # v1 API (legacy)
-app.include_router(api_v2_router, prefix="/v2")  # v2 API (clean architecture)
+app.include_router(api_router, prefix=settings.api_v1_str)  # v1 API (monitoring)
+app.include_router(api_v2_router, prefix="/v2")  # v2 API (inference)
 
 
 @app.get("/metrics", include_in_schema=False)

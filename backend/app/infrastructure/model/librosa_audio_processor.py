@@ -9,7 +9,7 @@ from app.domain.model.exceptions.invalid_audio_error import InvalidAudioError
 from app.domain.model.exceptions.prediction_failed_error import PredictionFailedError
 from app.domain.model.services.audio_processor import AudioProcessor
 from app.domain.model.value_objects.audio_metadata import AudioMetadata
-from models.v4.feature_extractor import (
+from app.infrastructure.model.v4.feature_extractor import (
     extract_features as v4_extract_features,
     extract_features_with_audio_data as v4_extract_with_audio_data,
 )

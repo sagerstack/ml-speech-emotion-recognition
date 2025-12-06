@@ -6,7 +6,7 @@ from typing import Any
 
 from app.domain.model.value_objects.emotion import Emotion
 from app.domain.monitoring.prediction_buffer import PredictionRecord
-from app.infrastructure.monitoring.evidently_service import EvidentlyMonitoringService
+from app.infrastructure.monitoring.evidently_service import EvidentlyService
 
 
 class LogPredictionForMonitoringUseCase:
@@ -15,16 +15,16 @@ class LogPredictionForMonitoringUseCase:
     This use case handles:
     1. Generating a unique prediction ID
     2. Creating a PredictionRecord from inference data
-    3. Logging to EvidentlyMonitoringService
+    3. Logging to EvidentlyService
     4. Graceful error handling (monitoring should not break inference)
 
     Following clean architecture:
-    - Depends on domain abstractions (EvidentlyMonitoringService)
+    - Depends on domain abstractions (EvidentlyService)
     - Returns simple types (prediction_id as string)
     - Handles errors gracefully without propagating exceptions
     """
 
-    def __init__(self, monitoring_service: EvidentlyMonitoringService, logger: Any):
+    def __init__(self, monitoring_service: EvidentlyService, logger: Any):
         """Initialize LogPredictionForMonitoringUseCase.
 
         Args:
@@ -93,6 +93,10 @@ class LogPredictionForMonitoringUseCase:
                 api_version=api_version,
             )
 
+            # Auto-report generation disabled - reports should be generated manually
+            # after feedback is submitted to ensure actual_emotion labels are included.
+            # Use POST /v1/monitoring/generate to trigger report generation.
+
             return prediction_id
 
         except Exception as exc:
@@ -105,3 +109,33 @@ class LogPredictionForMonitoringUseCase:
                 model_version=model_version,
             )
             return ""
+
+    def _trigger_auto_report(self, buffer_length: int) -> None:
+        """Trigger automatic report generation in background.
+
+        This method generates Evidently reports when the buffer reaches
+        the configured threshold. Report generation errors are logged
+        but do not affect inference.
+
+        Args:
+            buffer_length: Current number of predictions in buffer
+        """
+        try:
+            self.logger.info(
+                "Auto-generating Evidently report",
+                buffer_length=buffer_length,
+            )
+            report_info = self.monitoring_service.generate_report()
+            self.logger.info(
+                "Auto-generated Evidently report successfully",
+                report_name=report_info.name,
+                html_path=str(report_info.html_path),
+                buffer_length=buffer_length,
+            )
+        except Exception as exc:
+            # Report generation errors should not break inference
+            self.logger.warning(
+                "Auto-report generation failed",
+                error=str(exc),
+                buffer_length=buffer_length,
+            )
