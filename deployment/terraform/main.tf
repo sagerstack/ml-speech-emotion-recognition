@@ -160,28 +160,30 @@ module "ebs_csi_driver_irsa" {
   tags = local.tags
 }
 
-# Attach IAM role to existing EBS CSI driver addon (auto-created by EKS)
-resource "null_resource" "attach_ebs_csi_role" {
+# ==============================================================================
+# EBS CSI Driver Addon
+# ==============================================================================
+# This addon enables dynamic provisioning of EBS volumes for PersistentVolumeClaims
+# Required for monitoring stack (Prometheus, Grafana, Loki, Tempo) persistent storage
+resource "aws_eks_addon" "ebs_csi_driver" {
+  cluster_name             = module.eks.cluster_name
+  addon_name               = "aws-ebs-csi-driver"
+  addon_version            = "v1.37.0-eksbuild.1" # Compatible with EKS 1.31
+  service_account_role_arn = module.ebs_csi_driver_irsa.iam_role_arn
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+
   depends_on = [
     module.eks,
     module.ebs_csi_driver_irsa
   ]
 
-  triggers = {
-    role_arn     = module.ebs_csi_driver_irsa.iam_role_arn
-    cluster_name = module.eks.cluster_name
-  }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      aws eks update-addon \
-        --cluster-name ${module.eks.cluster_name} \
-        --addon-name aws-ebs-csi-driver \
-        --service-account-role-arn ${module.ebs_csi_driver_irsa.iam_role_arn} \
-        --region ${var.aws_region} \
-        --resolve-conflicts OVERWRITE || true
-    EOT
-  }
+  tags = merge(
+    local.tags,
+    {
+      Name = "${local.project_name}-ebs-csi-driver"
+    }
+  )
 }
 
 data "tls_certificate" "github" {

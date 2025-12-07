@@ -48,3 +48,13 @@ output "ebs_csi_driver_role_arn" {
   description = "IAM role ARN for EBS CSI driver service account"
   value       = module.ebs_csi_driver_irsa.iam_role_arn
 }
+
+# EBS CSI Driver Addon Status
+output "ebs_csi_driver_addon_status" {
+  description = "Status of the EBS CSI driver addon"
+  value = {
+    id      = aws_eks_addon.ebs_csi_driver.id
+    version = aws_eks_addon.ebs_csi_driver.addon_version
+    status  = aws_eks_addon.ebs_csi_driver.status
+  }
+}
