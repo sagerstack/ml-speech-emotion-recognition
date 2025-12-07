@@ -18,7 +18,6 @@ jobs:
         working-directory: backend
     env:
       SECRET_KEY: "ci-fake-secret-key"
-      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
 
     steps:
       - name: Checkout
@@ -50,7 +49,7 @@ jobs:
         run: poetry install --with dev --no-interaction --no-ansi
 
       - name: Run unit tests
-        run: poetry run pytest -m unit --maxfail=1 -p no:pytest_cov -o addopts="--strict-markers --strict-config --verbose -p no:pytest_asyncio --tb=short -ra"
+        run: poetry run pytest -m unit --maxfail=1 -p no:pytest_cov -o addopts="--strict-markers --strict-config --verbose --tb=short -ra"
 
   terraform-format:
     runs-on: ubuntu-latest
