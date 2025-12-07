@@ -796,10 +796,20 @@ class EvidentlyService:
 _monitoring_service: Optional[EvidentlyService] = None
 
 
-def get_monitoring_service() -> EvidentlyService:
+def get_monitoring_service() -> Optional[EvidentlyService]:
+    """Get global monitoring service singleton (only if monitoring is enabled).
+
+    Returns:
+        EvidentlyService instance if monitoring is enabled, None otherwise
+    """
     global _monitoring_service
+    settings = get_settings()
+
+    # Don't create monitoring service if monitoring is disabled
+    if not settings.enable_model_monitoring:
+        return None
+
     if _monitoring_service is None:
-        settings = get_settings()
         buffer = get_prediction_buffer()
         _monitoring_service = EvidentlyService(
             buffer=buffer,

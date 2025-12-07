@@ -45,12 +45,12 @@ def get_model_repository() -> ModelRepository:
 
 
 def get_log_prediction_for_monitoring_use_case(
-    monitoring_service: EvidentlyService = Depends(get_monitoring_service),
+    monitoring_service: EvidentlyService | None = Depends(get_monitoring_service),
 ) -> LogPredictionForMonitoringUseCase:
     """FastAPI dependency for LogPredictionForMonitoringUseCase.
 
     Args:
-        monitoring_service: Injected Evidently monitoring service
+        monitoring_service: Injected Evidently monitoring service (None if monitoring disabled)
 
     Returns:
         LogPredictionForMonitoringUseCase with dependencies
