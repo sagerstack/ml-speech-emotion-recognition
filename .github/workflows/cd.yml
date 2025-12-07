@@ -1,7 +1,17 @@
-name: Deploy to EKS
+name: Deploy to Production
 
 on:
   workflow_dispatch:
+    inputs:
+      model_version:
+        description: 'Model version to deploy to SageMaker (e.g., v5). Leave empty to skip SageMaker deployment.'
+        required: false
+        type: string
+      skip_sagemaker:
+        description: 'Skip SageMaker deployment (even if model_version is provided)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   AWS_REGION: us-east-1
@@ -10,10 +20,227 @@ env:
   KUSTOMIZE_DIR: deployment/k8s/prod
   BACKEND_REPO_NAME: ml-speech-emotion-backend
   STREAMLIT_REPO_NAME: ml-speech-emotion-streamlit
+  SAGEMAKER_ENDPOINT_NAME: ml-emotion-prod
 
 jobs:
-  deploy:
+  deploy-model-to-sagemaker:
+    name: Deploy Model to SageMaker
     runs-on: ubuntu-latest
+    if: ${{ inputs.model_version != '' && !inputs.skip_sagemaker }}
+    permissions:
+      id-token: write
+      contents: read
+    environment:
+      name: production
+    outputs:
+      sagemaker_endpoint: ${{ steps.deploy.outputs.endpoint_name }}
+      model_version: ${{ inputs.model_version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Get S3 bucket name from Terraform
+        id: terraform-outputs
+        working-directory: deployment/terraform
+        run: |
+          # Get S3 bucket name for model storage
+          MODEL_BUCKET=$(terraform output -raw model_storage_bucket_name 2>/dev/null || echo "")
+
+          if [ -z "$MODEL_BUCKET" ]; then
+            echo "❌ Error: Could not get S3 bucket name from Terraform outputs"
+            echo "Please ensure Terraform has been applied successfully"
+            exit 1
+          fi
+
+          echo "MODEL_BUCKET=${MODEL_BUCKET}" >> $GITHUB_ENV
+          echo "✓ Using S3 bucket: ${MODEL_BUCKET}"
+
+      - name: Validate model exists in S3
+        env:
+          MODEL_VERSION: ${{ inputs.model_version }}
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔍 Validating model $MODEL_VERSION in S3..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+
+          # Check if model.pkl exists
+          if ! aws s3 ls "s3://$MODEL_BUCKET/raw-models/$MODEL_VERSION/model.pkl" >/dev/null 2>&1; then
+            echo "❌ Error: Model not found in S3: s3://$MODEL_BUCKET/raw-models/$MODEL_VERSION/model.pkl"
+            echo ""
+            echo "Please upload the model first:"
+            echo "  ./scripts/upload_model_to_s3.sh $MODEL_VERSION"
+            exit 1
+          fi
+
+          # Check if metadata.json exists
+          if ! aws s3 ls "s3://$MODEL_BUCKET/raw-models/$MODEL_VERSION/metadata.json" >/dev/null 2>&1; then
+            echo "❌ Error: Metadata not found in S3"
+            exit 1
+          fi
+
+          # Check if feature_extractor.py exists
+          if ! aws s3 ls "s3://$MODEL_BUCKET/raw-models/$MODEL_VERSION/feature_extractor.py" >/dev/null 2>&1; then
+            echo "❌ Error: Feature extractor not found in S3"
+            exit 1
+          fi
+
+          echo "✅ All required files found in S3"
+
+      - name: Download model from S3
+        env:
+          MODEL_VERSION: ${{ inputs.model_version }}
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📥 Downloading model $MODEL_VERSION from S3..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          mkdir -p model_package/code
+
+          # Download model.pkl (large file)
+          echo "  → Downloading model.pkl..."
+          aws s3 cp "s3://$MODEL_BUCKET/raw-models/$MODEL_VERSION/model.pkl" \
+            model_package/model.pkl \
+            --no-progress
+
+          MODEL_SIZE=$(du -h model_package/model.pkl | cut -f1)
+          echo "  ✓ model.pkl downloaded ($MODEL_SIZE)"
+
+          # Download metadata
+          echo "  → Downloading metadata.json..."
+          aws s3 cp "s3://$MODEL_BUCKET/raw-models/$MODEL_VERSION/metadata.json" \
+            model_package/metadata.json
+          echo "  ✓ metadata.json downloaded"
+
+          # Download feature extractor
+          echo "  → Downloading feature_extractor.py..."
+          aws s3 cp "s3://$MODEL_BUCKET/raw-models/$MODEL_VERSION/feature_extractor.py" \
+            model_package/code/feature_extractor.py
+          echo "  ✓ feature_extractor.py downloaded"
+
+          echo ""
+          echo "✅ Model downloaded successfully"
+
+      - name: Prepare SageMaker package
+        env:
+          MODEL_VERSION: ${{ inputs.model_version }}
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 Preparing SageMaker package..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          # Copy inference handler
+          echo "  → Copying inference handler..."
+          cp deployment/sagemaker/inference.py model_package/code/
+          echo "  ✓ inference.py copied"
+
+          # Create requirements.txt
+          echo "  → Creating requirements.txt..."
+          cat > model_package/code/requirements.txt <<EOF
+          librosa==0.10.1
+          numpy==1.24.3
+          scikit-learn==1.3.0
+          soundfile==0.12.1
+          pandas==2.0.3
+          EOF
+          echo "  ✓ requirements.txt created"
+
+          # Create model.tar.gz
+          echo "  → Creating model.tar.gz archive..."
+          cd model_package
+          tar -czf ../model.tar.gz *
+          cd ..
+
+          PACKAGE_SIZE=$(du -h model.tar.gz | cut -f1)
+          echo "  ✓ model.tar.gz created ($PACKAGE_SIZE)"
+
+          echo ""
+          echo "✅ SageMaker package ready"
+
+      - name: Upload SageMaker package to S3
+        env:
+          MODEL_VERSION: ${{ inputs.model_version }}
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📤 Uploading SageMaker package to S3..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          S3_MODEL_URI="s3://$MODEL_BUCKET/sagemaker-models/$MODEL_VERSION/model.tar.gz"
+
+          aws s3 cp model.tar.gz "$S3_MODEL_URI" --no-progress
+
+          echo "✅ SageMaker package uploaded"
+          echo "   S3 URI: $S3_MODEL_URI"
+          echo ""
+
+          # Save for next step
+          echo "S3_MODEL_URI=${S3_MODEL_URI}" >> $GITHUB_ENV
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deployment dependencies
+        run: |
+          pip install boto3
+
+      - name: Deploy to SageMaker
+        id: deploy
+        env:
+          MODEL_VERSION: ${{ inputs.model_version }}
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🚀 Deploying model to SageMaker..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          python deployment/sagemaker/scripts/deploy_to_sagemaker.py \
+            --model-version "$MODEL_VERSION" \
+            --endpoint-name "${{ env.SAGEMAKER_ENDPOINT_NAME }}" \
+            --instance-type ml.t3.medium \
+            --s3-uri "$S3_MODEL_URI" \
+            --region "${{ env.AWS_REGION }}" \
+            --timeout 900
+
+          echo ""
+          echo "endpoint_name=${{ env.SAGEMAKER_ENDPOINT_NAME }}" >> $GITHUB_OUTPUT
+
+      - name: Verify SageMaker endpoint
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Verifying SageMaker endpoint..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          aws sagemaker describe-endpoint \
+            --endpoint-name "${{ env.SAGEMAKER_ENDPOINT_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query '{Name:EndpointName, Status:EndpointStatus, InstanceType:ProductionVariants[0].InstanceType, CurrentInstanceCount:ProductionVariants[0].CurrentInstanceCount}' \
+            --output table
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎉 SageMaker Deployment Complete!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "   Endpoint Name: ${{ env.SAGEMAKER_ENDPOINT_NAME }}"
+          echo "   Model Version: ${{ inputs.model_version }}"
+          echo "   Instance Type: ml.t3.medium"
+          echo "   Region: ${{ env.AWS_REGION }}"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: [deploy-model-to-sagemaker]
+    if: ${{ always() }}
     permissions:
       id-token: write
       contents: read
@@ -343,5 +570,24 @@ jobs:
           echo "   • Promtail - Log collection (DaemonSet)"
           echo "   • kube-state-metrics - K8s metrics"
           echo "   • node-exporter - Node metrics (DaemonSet)"
+
+          # Show SageMaker deployment info if model was deployed
+          if [ "${{ needs.deploy-model-to-sagemaker.result }}" = "success" ]; then
+            echo "   • SageMaker Endpoint - ML model inference (${{ needs.deploy-model-to-sagemaker.outputs.model_version }})"
+          fi
+
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          # Display SageMaker deployment details if successful
+          if [ "${{ needs.deploy-model-to-sagemaker.result }}" = "success" ]; then
+            echo ""
+            echo "🤖 SageMaker ML Model:"
+            echo "   Endpoint Name: ${{ needs.deploy-model-to-sagemaker.outputs.sagemaker_endpoint }}"
+            echo "   Model Version: ${{ needs.deploy-model-to-sagemaker.outputs.model_version }}"
+            echo "   Instance Type: ml.t3.medium"
+            echo "   Region: ${{ env.AWS_REGION }}"
+            echo "   Status: InService"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          fi

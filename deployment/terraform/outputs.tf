@@ -58,3 +58,24 @@ output "ebs_csi_driver_addon_info" {
     arn     = aws_eks_addon.ebs_csi_driver.arn
   }
 }
+
+# SageMaker Outputs
+output "model_storage_bucket_name" {
+  description = "S3 bucket name for ML model storage"
+  value       = module.sagemaker.model_storage_bucket_name
+}
+
+output "model_storage_bucket_arn" {
+  description = "S3 bucket ARN for ML model storage"
+  value       = module.sagemaker.model_storage_bucket_arn
+}
+
+output "sagemaker_execution_role_arn" {
+  description = "IAM role ARN for SageMaker execution"
+  value       = module.sagemaker.sagemaker_execution_role_arn
+}
+
+output "sagemaker_execution_role_name" {
+  description = "IAM role name for SageMaker execution"
+  value       = module.sagemaker.sagemaker_execution_role_name
+}
