@@ -115,7 +115,7 @@ jobs:
           python deployment/sagemaker/scripts/deploy_to_sagemaker.py \
             --model-version "$MODEL_VERSION" \
             --endpoint-name "${{ env.SAGEMAKER_ENDPOINT_NAME }}" \
-            --instance-type ml.t3.medium \
+            --instance-type ml.t2.medium \
             --s3-uri "$S3_MODEL_URI" \
             --region "${{ env.AWS_REGION }}" \
             --execution-role-arn "arn:aws:iam::303440520181:role/ml-speech-emotion-prod-sagemaker-execution" \
