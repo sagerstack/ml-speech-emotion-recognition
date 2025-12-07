@@ -193,7 +193,7 @@ class SageMakerDeployer:
             return config_arn
 
         except ClientError as e:
-            if e.response['Error']['Code'] == 'ValidationException' and 'already exists' in str(e):
+            if e.response['Error']['Code'] == 'ValidationException' and ('already exists' in str(e) or 'already existing' in str(e)):
                 logger.warning(f"Endpoint config {config_name} already exists, skipping creation")
                 response = self.sagemaker_client.describe_endpoint_config(EndpointConfigName=config_name)
                 return response['EndpointConfigArn']
