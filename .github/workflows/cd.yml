@@ -119,23 +119,6 @@ jobs:
             exit 1
           fi
 
-      - name: Display application URLs
-        run: |
-          ALB_ADDRESS="${{ env.ALB_ADDRESS }}"
-
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🎉 Deployment Successful!"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          echo "📱 Application URLs:"
-          echo "   Frontend (Streamlit):  http://${ALB_ADDRESS}/"
-          echo "   Backend API:           http://${ALB_ADDRESS}/api"
-          echo "   API Docs:              http://${ALB_ADDRESS}/docs"
-          echo "   Health Check:          http://${ALB_ADDRESS}/health"
-          echo "   Metrics:               http://${ALB_ADDRESS}/metrics"
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
       - name: Post-deploy smoke tests
         run: |
           ALB_ADDRESS="${{ env.ALB_ADDRESS }}"
@@ -180,16 +163,16 @@ jobs:
           echo "Waiting for monitoring components to be ready..."
 
           # Wait for main monitoring pods
-          kubectl wait --for=condition=ready pod -l app=prometheus -n monitoring --timeout=180s || echo "⚠ Prometheus not ready yet"
-          kubectl wait --for=condition=ready pod -l app=grafana -n monitoring --timeout=180s || echo "⚠ Grafana not ready yet"
-          kubectl wait --for=condition=ready pod -l app=loki -n monitoring --timeout=180s || echo "⚠ Loki not ready yet"
-          kubectl wait --for=condition=ready pod -l app=tempo -n monitoring --timeout=180s || echo "⚠ Tempo not ready yet"
-          kubectl wait --for=condition=ready pod -l app=kube-state-metrics -n monitoring --timeout=180s || echo "⚠ kube-state-metrics not ready yet"
+          kubectl wait --for=condition=ready pod -l app=prometheus -n monitoring --timeout=180s
+          kubectl wait --for=condition=ready pod -l app=grafana -n monitoring --timeout=180s
+          kubectl wait --for=condition=ready pod -l app=loki -n monitoring --timeout=180s
+          kubectl wait --for=condition=ready pod -l app=tempo -n monitoring --timeout=180s
+          kubectl wait --for=condition=ready pod -l app=kube-state-metrics -n monitoring --timeout=180s
 
           # Wait for DaemonSets
           echo "Waiting for DaemonSets..."
-          kubectl rollout status daemonset/promtail -n monitoring --timeout=180s || echo "⚠ Promtail not ready yet"
-          kubectl rollout status daemonset/node-exporter -n monitoring --timeout=180s || echo "⚠ node-exporter not ready yet"
+          kubectl rollout status daemonset/promtail -n monitoring --timeout=180s
+          kubectl rollout status daemonset/node-exporter -n monitoring --timeout=180s
 
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -244,9 +227,61 @@ jobs:
           echo "   ✓ node-exporter - Node-level system metrics (DaemonSet)"
           echo ""
           echo "📊 Storage:"
-          echo "   • Prometheus: 20Gi gp3"
-          echo "   • Loki: 20Gi gp3"
-          echo "   • Grafana: 10Gi gp3"
-          echo "   • Tempo: 10Gi gp3"
+          echo "   • Prometheus: 20Gi gp2"
+          echo "   • Loki: 20Gi gp2"
+          echo "   • Grafana: 10Gi gp2"
+          echo "   • Tempo: 10Gi gp2"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Display application URLs
+        run: |
+          ALB_ADDRESS="${{ env.ALB_ADDRESS }}"
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎉 Deployment Successful!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📱 Application URLs:"
+          echo "   Frontend (Streamlit):  http://${ALB_ADDRESS}/"
+          echo "   Backend API:           http://${ALB_ADDRESS}/api"
+          echo "   API Docs (Swagger):    http://${ALB_ADDRESS}/docs"
+          echo "   Health Check:          http://${ALB_ADDRESS}/health"
+          echo "   Metrics:               http://${ALB_ADDRESS}/metrics"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📊 Monitoring URLs (use kubectl port-forward):"
+          echo ""
+          echo "   🔍 Grafana (Dashboards):"
+          echo "      kubectl port-forward -n monitoring svc/grafana 3000:3000"
+          echo "      → http://localhost:3000"
+          echo "      → Default credentials: admin/admin"
+          echo ""
+          echo "   📈 Prometheus (Metrics):"
+          echo "      kubectl port-forward -n monitoring svc/prometheus 9090:9090"
+          echo "      → http://localhost:9090"
+          echo ""
+          echo "   📋 Loki (Logs):"
+          echo "      kubectl port-forward -n monitoring svc/loki 3100:3100"
+          echo "      → http://localhost:3100"
+          echo ""
+          echo "   🔗 Tempo (Distributed Tracing):"
+          echo "      kubectl port-forward -n monitoring svc/tempo 3200:3200"
+          echo "      → http://localhost:3200"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "✅ Full Stack Deployed:"
+          echo "   • Backend (FastAPI) - 2 replicas"
+          echo "   • Frontend (Streamlit) - 2 replicas"
+          echo "   • Prometheus - Metrics collection"
+          echo "   • Grafana - Visualization dashboards"
+          echo "   • Loki - Log aggregation"
+          echo "   • Tempo - Distributed tracing"
+          echo "   • Promtail - Log collection (DaemonSet)"
+          echo "   • kube-state-metrics - K8s metrics"
+          echo "   • node-exporter - Node metrics (DaemonSet)"
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
