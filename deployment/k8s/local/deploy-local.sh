@@ -208,8 +208,17 @@ echo "Step 6: Deploy to Kubernetes"
 echo "Applying Kubernetes manifests..."
 kubectl apply -f "${SCRIPT_DIR}/namespace.yaml"
 kubectl apply -f "${SCRIPT_DIR}/configmap.yaml"
-kubectl apply -f "${SCRIPT_DIR}/backend-deployment.yaml"
-kubectl apply -f "${SCRIPT_DIR}/streamlit-deployment.yaml"
+
+# When using --skip-push, patch imagePullPolicy to Never so k8s uses local images
+if [ "${SKIP_PUSH}" = true ]; then
+  echo "Using local images (imagePullPolicy: Never)..."
+  # Apply manifests with sed to change imagePullPolicy from Always to Never
+  sed 's/imagePullPolicy: Always/imagePullPolicy: Never/g' "${SCRIPT_DIR}/backend-deployment.yaml" | kubectl apply -f -
+  sed 's/imagePullPolicy: Always/imagePullPolicy: Never/g' "${SCRIPT_DIR}/streamlit-deployment.yaml" | kubectl apply -f -
+else
+  kubectl apply -f "${SCRIPT_DIR}/backend-deployment.yaml"
+  kubectl apply -f "${SCRIPT_DIR}/streamlit-deployment.yaml"
+fi
 kubectl apply -f "${SCRIPT_DIR}/ingress.yaml"
 
 # Force pod restart to ensure new images are pulled

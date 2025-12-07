@@ -2224,7 +2224,7 @@ data:
                 "uid": "DS_PROMETHEUS"
               },
               "editorMode": "code",
-              "expr": "avg(1-rate(node_cpu_seconds_total{mode=\"idle\", job=\"node-exporter\"}[$__rate_interval]))",
+              "expr": "avg(1-rate(node_cpu_seconds_total{mode=\"idle\", job=\"kubernetes-pods\"}[$__rate_interval]))",
               "legendFormat": "__auto",
               "range": true,
               "refId": "A"
@@ -2296,7 +2296,7 @@ data:
                 "uid": "DS_PROMETHEUS"
               },
               "editorMode": "code",
-              "expr": "sum(node_memory_MemTotal_bytes{job=\"node-exporter\"} - node_memory_MemAvailable_bytes{job=\"node-exporter\"}) / sum(node_memory_MemTotal_bytes{job=\"node-exporter\"})",
+              "expr": "sum(node_memory_MemTotal_bytes{job=\"kubernetes-pods\"} - node_memory_MemAvailable_bytes{job=\"kubernetes-pods\"}) / sum(node_memory_MemTotal_bytes{job=\"kubernetes-pods\"})",
               "legendFormat": "__auto",
               "range": true,
               "refId": "A"
@@ -2501,7 +2501,7 @@ data:
                 "uid": "DS_PROMETHEUS"
               },
               "editorMode": "builder",
-              "expr": "sum by(device) (rate(node_disk_read_bytes_total{device=\"sda\", instance=~\".+\"}[$__rate_interval]))",
+              "expr": "sum by(device) (rate(node_disk_read_bytes_total{device=~\"nvme.*|xvd.*|vd.*|sd.*\", job=\"kubernetes-pods\"}[$__rate_interval]))",
               "hide": false,
               "legendFormat": "__auto",
               "range": true,
@@ -2513,7 +2513,7 @@ data:
                 "uid": "DS_PROMETHEUS"
               },
               "editorMode": "code",
-              "expr": "sum by(device) (rate(node_disk_written_bytes_total{device=\"sda\", instance=~\".+\"}[$__rate_interval]))",
+              "expr": "sum by(device) (rate(node_disk_written_bytes_total{device=~\"nvme.*|xvd.*|vd.*|sd.*\", job=\"kubernetes-pods\"}[$__rate_interval]))",
               "legendFormat": "__auto",
               "range": true,
               "refId": "B"

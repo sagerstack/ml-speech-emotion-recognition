@@ -18,13 +18,22 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_client import Counter, Histogram, generate_latest
+from fastapi.middleware.gzip import GZipMiddleware
+from prometheus_client import Counter, Histogram
 
 from app.api.v1 import api_router
-from app.middleware.prometheus import PrometheusMiddleware, metrics_endpoint
-from app.utils.config import get_settings
-from app.utils.logging import setup_logging, get_logger, RequestLoggingMiddleware
-from app.utils.observability import setup_tracing
+from app.api.v2 import api_v2_router
+from app.infrastructure.observability.logging import (
+    RequestLoggingMiddleware,
+    get_logger,
+    setup_logging,
+)
+from app.infrastructure.observability.metrics import (
+    PrometheusMiddleware,
+    metrics_endpoint,
+)
+from app.infrastructure.observability.tracing import setup_tracing
+from app.infrastructure.config import get_settings
 
 # Initialize settings and logging
 settings = get_settings()
@@ -78,6 +87,10 @@ if otlp_endpoint or os.getenv("ENVIRONMENT", "development") != "development":
 else:
     logger.info("OpenTelemetry tracing disabled (no OTLP endpoint configured)")
 
+# Add GZIP compression middleware for large responses (audio_features data)
+# Must be added before other middleware to compress all responses
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 # Add CORS middleware for local development
 app.add_middleware(
     CORSMiddleware,
@@ -98,8 +111,9 @@ app.add_middleware(PrometheusMiddleware, app_name=APP_NAME)
 # Add request logging middleware
 app.add_middleware(RequestLoggingMiddleware, app_name=APP_NAME)
 
-# Include API router
-app.include_router(api_router, prefix=settings.api_v1_str)
+# Include API routers
+app.include_router(api_router, prefix=settings.api_v1_str)  # v1 API (monitoring)
+app.include_router(api_v2_router, prefix="/v2")  # v2 API (inference)
 
 
 @app.get("/metrics", include_in_schema=False)

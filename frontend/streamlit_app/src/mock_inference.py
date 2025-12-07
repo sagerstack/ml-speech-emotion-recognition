@@ -3,7 +3,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
+import uuid
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,7 @@ class AnalysisResult:
     feature_tracks: pd.DataFrame
     timeline: List[Dict[str, str]]
     visualizations: Dict[str, np.ndarray]
+    prediction_id: Optional[str] = None
 
 
 class MockSpeechEmotionLab:
@@ -41,6 +43,7 @@ class MockSpeechEmotionLab:
         visuals = self._make_visualizations(rng.integers(0, 10000))
         feature_tracks = self._make_feature_tracks(rng)
         timeline = self._make_timeline()
+        prediction_id = str(uuid.uuid4())
 
         return AnalysisResult(
             source=source,
@@ -53,6 +56,7 @@ class MockSpeechEmotionLab:
             feature_tracks=feature_tracks,
             timeline=timeline,
             visualizations=visuals,
+            prediction_id=prediction_id,
         )
 
     def _rng(self, token: str) -> np.random.Generator:
@@ -100,4 +104,3 @@ class MockSpeechEmotionLab:
 
 
 lab_backend = MockSpeechEmotionLab()
-

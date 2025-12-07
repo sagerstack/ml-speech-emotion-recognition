@@ -2,30 +2,56 @@
 
 from datetime import datetime
 from pathlib import Path
+
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import monitoring as monitoring_module
-from app.api.v1.endpoints import inference_local as inference_local_module
+from app.domain.monitoring.prediction_buffer import PredictionBuffer, PredictionRecord
+from app.infrastructure.monitoring.evidently_service import EvidentlyService
 from app.main import app
-from app.services.evidently_monitoring import EvidentlyMonitoringService
-from app.services.prediction_buffer import PredictionBuffer, PredictionRecord
 
 
 class DummyReport:
+    """Lightweight stand-in for Evidently's Report to avoid heavy computations."""
+
     def __init__(self, metrics):
         self.metrics = metrics
         self._current_columns: list[str] = []
 
-    def run(self, reference_data: pd.DataFrame, current_data: pd.DataFrame, column_mapping):
-        self._current_columns = list(current_data.columns)
+    def run(self, current_data, reference_data=None):
+        """Match Evidently 0.7 API signature which accepts Dataset objects."""
+        # Extract DataFrame from Dataset-like object for testing
+        if hasattr(current_data, 'data'):
+            self._current_columns = list(current_data.data.columns)
+        elif isinstance(current_data, pd.DataFrame):
+            self._current_columns = list(current_data.columns)
+        return self
 
     def save_html(self, path: Path) -> None:
         Path(path).write_text("<html>dummy</html>")
 
     def save_json(self, path: Path) -> None:
-        Path(path).write_text("{\"metrics\": []}")
+        Path(path).write_text('{"metrics": []}')
+
+    def dump_dict(self) -> dict:
+        """Return snapshot dict for Evidently 0.7 compatibility."""
+        return {
+            "metric_results": {
+                "drift_metric": {
+                    "metric_value_location": {
+                        "metric": {
+                            "params": {
+                                "type": "DriftedColumnsCount"
+                            }
+                        }
+                    },
+                    "count": {"value": 0},
+                    "share": {"value": 0.0}
+                }
+            }
+        }
 
     def as_dict(self) -> dict:
         return {
@@ -72,9 +98,9 @@ def monitoring_service(tmp_path_factory, monkeypatch):
         )
     )
 
-    monkeypatch.setattr("app.services.evidently_monitoring.Report", DummyReport)
+    monkeypatch.setattr("app.infrastructure.monitoring.evidently_service.Report", DummyReport)
 
-    service = EvidentlyMonitoringService(
+    service = EvidentlyService(
         buffer=buffer,
         reference_data_path=str(reference_csv),
         reports_dir=str(tmp_dir / "reports"),
@@ -82,7 +108,6 @@ def monitoring_service(tmp_path_factory, monkeypatch):
     )
 
     monkeypatch.setattr(monitoring_module, "get_monitoring_service", lambda: service)
-    monkeypatch.setattr(inference_local_module, "get_monitoring_service", lambda: service)
 
     return service
 

@@ -13,9 +13,10 @@ import os
 import sys
 import tempfile
 import uuid
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional
-from unittest.mock import MagicMock, Mock
+from typing import Any
+from unittest.mock import MagicMock
 
 import boto3
 import librosa
@@ -34,10 +35,10 @@ if str(BACKEND_ROOT) not in sys.path:
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-jwt")
 os.environ.setdefault("AWS_REGION", "us-east-1")
 
+from app.infrastructure.audio.processor import AudioFeatures, AudioMetadata, AudioProcessor
 from app.main import app
-from app.services.audio_service import AudioProcessor, AudioFeatures, AudioMetadata
-from app.utils.config import Settings, get_settings
-from app.utils.logging import get_logger, setup_logging
+from app.infrastructure.config import Settings
+from app.infrastructure.observability.logging import get_logger, setup_logging
 
 # Configure logging for tests
 setup_logging()
@@ -81,7 +82,7 @@ def test_settings() -> Settings:
         secret_key="test-secret-key-for-jwt-testing",
         max_upload_size_mb=10,
         max_audio_duration_seconds=30,
-        cors_origins=["http://localhost:3000", "http://localhost:8501"]
+        cors_origins=["http://localhost:3000", "http://localhost:8501"],
     )
 
 
@@ -107,13 +108,17 @@ def mock_sagemaker_runtime() -> Generator[MagicMock, None, None]:
     with mock_aws():
         runtime_client = MagicMock()
         runtime_client.invoke_endpoint.return_value = {
-            "Body": io.BytesIO(json.dumps({
-                "predictions": [
-                    {"label": "happy", "confidence": 0.85},
-                    {"label": "neutral", "confidence": 0.10},
-                    {"label": "sad", "confidence": 0.05}
-                ]
-            }).encode())
+            "Body": io.BytesIO(
+                json.dumps(
+                    {
+                        "predictions": [
+                            {"label": "happy", "confidence": 0.85},
+                            {"label": "neutral", "confidence": 0.10},
+                            {"label": "sad", "confidence": 0.05},
+                        ]
+                    }
+                ).encode()
+            )
         }
         yield runtime_client
 
@@ -147,7 +152,7 @@ def sample_audio_file() -> bytes:
 
     # Convert to bytes
     audio_buffer = io.BytesIO()
-    sf.write(audio_buffer, audio_data, sample_rate, format='WAV')
+    sf.write(audio_buffer, audio_data, sample_rate, format="WAV")
     audio_buffer.seek(0)
 
     return audio_buffer.read()
@@ -162,7 +167,7 @@ def sample_mp3_file() -> bytes:
     # For testing purposes, we'll use WAV data as MP3
     # In real implementation, you'd convert to MP3
     audio_buffer = io.BytesIO()
-    sf.write(audio_buffer, wav_data, 22050, format='WAV')
+    sf.write(audio_buffer, wav_data, 22050, format="WAV")
     audio_buffer.seek(0)
 
     return audio_buffer.read()
@@ -185,11 +190,12 @@ def large_audio_file() -> bytes:
 
     t = np.linspace(0, duration, int(sample_rate * duration), False)
     # Create stereo audio (2 channels) to double the file size
-    audio_data = np.array([np.sin(2 * np.pi * frequency * t),
-                          np.sin(2 * np.pi * frequency * t * 0.9)]).T
+    audio_data = np.array(
+        [np.sin(2 * np.pi * frequency * t), np.sin(2 * np.pi * frequency * t * 0.9)]
+    ).T
 
     audio_buffer = io.BytesIO()
-    sf.write(audio_buffer, audio_data, sample_rate, format='WAV')
+    sf.write(audio_buffer, audio_data, sample_rate, format="WAV")
     audio_buffer.seek(0)
     file_bytes = audio_buffer.read()
 
@@ -198,7 +204,7 @@ def large_audio_file() -> bytes:
         audio_buffer = io.BytesIO()
         # Add more channels or increase bit depth if needed
         multi_channel_data = np.tile(audio_data, (1, 4))  # 8 channels total
-        sf.write(audio_buffer, multi_channel_data, sample_rate, format='WAV')
+        sf.write(audio_buffer, multi_channel_data, sample_rate, format="WAV")
         audio_buffer.seek(0)
         file_bytes = audio_buffer.read()
         if len(file_bytes) > 50 * 1024 * 1024:  # Safety break
@@ -211,11 +217,7 @@ def large_audio_file() -> bytes:
 def sample_audio_metadata() -> AudioMetadata:
     """Create sample audio metadata for testing."""
     return AudioMetadata(
-        duration=2.5,
-        sample_rate=22050,
-        channels=1,
-        format="wav",
-        file_size_bytes=110250
+        duration=2.5, sample_rate=22050, channels=1, format="wav", file_size_bytes=110250
     )
 
 
@@ -232,26 +234,22 @@ def sample_audio_features(sample_audio_metadata: AudioMetadata) -> AudioFeatures
         spectral_rolloff=np.random.randn(1, n_frames),
         zero_crossing_rate=np.random.randn(1, n_frames),
         rms=np.random.randn(1, n_frames),
-        metadata=sample_audio_metadata
+        metadata=sample_audio_metadata,
     )
 
 
 @pytest.fixture
-def emotion_prediction_response() -> Dict[str, Any]:
+def emotion_prediction_response() -> dict[str, Any]:
     """Sample emotion prediction response from SageMaker."""
     return {
         "predictions": [
             {"label": "happy", "confidence": 0.85},
             {"label": "neutral", "confidence": 0.10},
-            {"label": "sad", "confidence": 0.05}
+            {"label": "sad", "confidence": 0.05},
         ],
         "processed_at": "2024-01-01T12:00:00Z",
         "model_version": "v1.0.0",
-        "audio_metadata": {
-            "duration": 2.5,
-            "sample_rate": 22050,
-            "channels": 1
-        }
+        "audio_metadata": {"duration": 2.5, "sample_rate": 22050, "channels": 1},
     }
 
 
@@ -279,48 +277,45 @@ def correlation_id() -> str:
 
 
 @pytest.fixture
-def auth_headers() -> Dict[str, str]:
+def auth_headers() -> dict[str, str]:
     """Create authentication headers for testing."""
     return {
         "Authorization": "Bearer test-token",
         "Content-Type": "application/json",
-        "X-Correlation-ID": str(uuid.uuid4())
+        "X-Correlation-ID": str(uuid.uuid4()),
     }
 
 
 @pytest.fixture
-def multipart_audio_data(sample_audio_file: bytes) -> Dict[str, Any]:
+def multipart_audio_data(sample_audio_file: bytes) -> dict[str, Any]:
     """Create multipart form data for audio upload testing."""
-    return {
-        "file": ("test_audio.wav", sample_audio_file, "audio/wav"),
-        "user_id": "test-user-123"
-    }
+    return {"file": ("test_audio.wav", sample_audio_file, "audio/wav"), "user_id": "test-user-123"}
 
 
 @pytest.fixture
-def error_responses() -> Dict[str, Dict[str, Any]]:
+def error_responses() -> dict[str, dict[str, Any]]:
     """Sample error responses for testing."""
     return {
         "invalid_audio": {
             "detail": "Invalid audio file format",
             "error_code": "INVALID_AUDIO",
-            "timestamp": "2024-01-01T12:00:00Z"
+            "timestamp": "2024-01-01T12:00:00Z",
         },
         "file_too_large": {
             "detail": "Audio file size exceeds maximum allowed limit",
             "error_code": "FILE_TOO_LARGE",
-            "timestamp": "2024-01-01T12:00:00Z"
+            "timestamp": "2024-01-01T12:00:00Z",
         },
         "processing_error": {
             "detail": "Audio processing failed",
             "error_code": "PROCESSING_ERROR",
-            "timestamp": "2024-01-01T12:00:00Z"
+            "timestamp": "2024-01-01T12:00:00Z",
         },
         "aws_error": {
             "detail": "AWS service error",
             "error_code": "AWS_ERROR",
-            "timestamp": "2024-01-01T12:00:00Z"
-        }
+            "timestamp": "2024-01-01T12:00:00Z",
+        },
     }
 
 
@@ -329,14 +324,11 @@ def cleanup_test_files() -> Generator[None, None, None]:
     """Clean up test files after each test."""
     yield
     # Clean up any temporary files created during tests
-    temp_patterns = [
-        "/tmp/test_audio_*",
-        "/tmp/temp_audio_*",
-        "/tmp/prediction_*"
-    ]
+    temp_patterns = ["/tmp/test_audio_*", "/tmp/temp_audio_*", "/tmp/prediction_*"]
 
     for pattern in temp_patterns:
         import glob
+
         for file_path in glob.glob(pattern):
             try:
                 os.remove(file_path)
@@ -375,19 +367,19 @@ def mock_websocket() -> MagicMock:
 
 # Performance testing fixtures
 @pytest.fixture
-def performance_test_data() -> Dict[str, Any]:
+def performance_test_data() -> dict[str, Any]:
     """Data for performance testing."""
     return {
         "concurrent_requests": 50,
         "max_response_time_ms": 5000,
         "success_rate_threshold": 0.95,
-        "memory_limit_mb": 512
+        "memory_limit_mb": 512,
     }
 
 
 # Logging test fixtures
 @pytest.fixture
-def log_capture() -> Generator[List[str], None, None]:
+def log_capture() -> Generator[list[str], None, None]:
     """Capture log messages for testing."""
     messages = []
 
@@ -410,15 +402,7 @@ def pytest_configure(config) -> None:
     config.addinivalue_line(
         "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
     )
-    config.addinivalue_line(
-        "markers", "aws: marks tests that require AWS services"
-    )
-    config.addinivalue_line(
-        "markers", "audio: marks tests that require audio processing"
-    )
-    config.addinivalue_line(
-        "markers", "integration: marks tests as integration tests"
-    )
-    config.addinivalue_line(
-        "markers", "e2e: marks tests as end-to-end tests"
-    )
+    config.addinivalue_line("markers", "aws: marks tests that require AWS services")
+    config.addinivalue_line("markers", "audio: marks tests that require audio processing")
+    config.addinivalue_line("markers", "integration: marks tests as integration tests")
+    config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")

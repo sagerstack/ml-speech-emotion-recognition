@@ -194,3 +194,4 @@ The project appears to need:
 - never create guides unless i ask you to do so
 - always deploy the local k8s stack using local-deploy.sh and include monitoring
 - always deploy the local k8s stack using local-deploy.sh and include monitoring
+- never create test python/shell scripts for temporary usage

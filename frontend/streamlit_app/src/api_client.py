@@ -73,6 +73,7 @@ class EmotionAnalysisResult(BaseModel):
     audio_metadata: Optional[AudioMetadata] = None
     inference_metadata: Optional[InferenceMetadata] = None
     request_id: Optional[str] = None
+    prediction_id: Optional[str] = None
 
 
 class SpeechEmotionAPIClient:
@@ -120,6 +121,127 @@ class SpeechEmotionAPIClient:
             logger.warning(f"Health check failed: {str(e)}")
             return False
 
+    def get_model_versions(self) -> Dict[str, Any]:
+        """
+        Get all available model versions (v2 API).
+
+        Returns:
+            Dictionary containing:
+            - versions: List of available versions (e.g., ["v4", "v3", "v2", "v1"])
+            - latest: Latest version string (e.g., "v4")
+            - count: Total number of versions
+
+        Raises:
+            RequestException: If the API request fails
+        """
+        try:
+            logger.info("Fetching model versions")
+            response = self.session.get(
+                f"{self.base_url}/v2/inference/versions",
+                timeout=15
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"Model versions fetched: {data.get('count', 0)} versions available")
+                return data
+            else:
+                logger.error(f"Failed to fetch model versions: {response.status_code}")
+                raise RequestException(f"Failed to fetch model versions: HTTP {response.status_code}")
+
+        except (Timeout, ConnectionError) as e:
+            logger.error(f"Connection error fetching model versions: {str(e)}")
+            raise RequestException(f"Connection error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error fetching model versions: {str(e)}")
+            raise RequestException(f"Unexpected error: {str(e)}")
+
+    def get_model_info(self, version: str) -> Dict[str, Any]:
+        """
+        Get information for a specific model version (v2 API).
+
+        Args:
+            version: Model version (e.g., "v4", "v3")
+
+        Returns:
+            Dictionary containing:
+            - version: Model version
+            - model_type: Type of model (e.g., "UltraEnsembleModel")
+            - feature_dimension: Feature dimension
+            - available: Boolean indicating availability
+
+        Raises:
+            RequestException: If the API request fails
+        """
+        try:
+            logger.info(f"Fetching model info for version: {version}")
+            response = self.session.get(
+                f"{self.base_url}/v2/inference/{version}/info",
+                timeout=15
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"Model info fetched for {version}: {data.get('model_type', 'unknown')}")
+                return data
+            elif response.status_code == 404:
+                logger.warning(f"Model version {version} not found")
+                raise RequestException(f"Model version {version} not found")
+            else:
+                logger.error(f"Failed to fetch model info: {response.status_code}")
+                raise RequestException(f"Failed to fetch model info: HTTP {response.status_code}")
+
+        except (Timeout, ConnectionError) as e:
+            logger.error(f"Connection error fetching model info: {str(e)}")
+            raise RequestException(f"Connection error: {str(e)}")
+        except RequestException:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error fetching model info: {str(e)}")
+            raise RequestException(f"Unexpected error: {str(e)}")
+
+    def get_latest_model_info(self) -> Dict[str, Any]:
+        """
+        Get information for the latest model version (v2 API).
+
+        Returns:
+            Dictionary containing:
+            - version: Model version
+            - model_type: Type of model (e.g., "UltraEnsembleModel")
+            - feature_dimension: Feature dimension
+            - available: Boolean indicating availability
+            - is_latest: Always True for this endpoint
+
+        Raises:
+            RequestException: If the API request fails
+        """
+        try:
+            logger.info("Fetching latest model info")
+            response = self.session.get(
+                f"{self.base_url}/v2/inference/info",
+                timeout=15
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"Latest model info fetched: {data.get('version', 'unknown')} - {data.get('model_type', 'unknown')}")
+                return data
+            elif response.status_code == 404:
+                logger.warning("Latest model not found")
+                raise RequestException("Latest model not found")
+            else:
+                logger.error(f"Failed to fetch latest model info: {response.status_code}")
+                raise RequestException(f"Failed to fetch latest model info: HTTP {response.status_code}")
+
+        except (Timeout, ConnectionError) as e:
+            logger.error(f"Connection error fetching latest model info: {str(e)}")
+            raise RequestException(f"Connection error: {str(e)}")
+        except RequestException:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error fetching latest model info: {str(e)}")
+            raise RequestException(f"Unexpected error: {str(e)}")
+
     def analyze_audio_file(
         self,
         audio_file: BinaryIO,
@@ -128,6 +250,9 @@ class SpeechEmotionAPIClient:
     ) -> EmotionAnalysisResult:
         """
         Analyze an audio file for emotion recognition.
+
+        DEPRECATED: This method uses a legacy endpoint that no longer exists.
+        Use analyze_audio_local() instead which uses the v2 API.
 
         Args:
             audio_file: Audio file binary data
@@ -141,110 +266,28 @@ class SpeechEmotionAPIClient:
             RequestException: If the API request fails
             ValueError: If the response is invalid
         """
-        start_time = time.time()
-
-        try:
-            # Prepare the file for upload
-            files = {'file': (filename, audio_file, 'audio/wav')}
-            data = {'engine': engine}
-
-            logger.info(f"Analyzing audio file: {filename} with engine: {engine}")
-
-            # Make the request to the inference endpoint
-            response = self.session.post(
-                f"{self.base_url}/v1/infer/infer",
-                files=files,
-                data=data,
-                timeout=self.timeout
-            )
-
-            # Calculate total processing time
-            total_processing_time = time.time() - start_time
-
-            # Handle different response scenarios
-            if response.status_code == 200:
-                return self._parse_success_response(response, filename, engine, total_processing_time)
-            else:
-                return self._handle_error_response(response)
-
-        except Timeout as e:
-            logger.error(f"Request timeout after {self.timeout}s: {str(e)}")
-            raise RequestException(f"Request timeout: The analysis took too long to complete.")
-
-        except ConnectionError as e:
-            logger.error(f"Connection error: {str(e)}")
-            raise RequestException(f"Connection error: Unable to connect to the backend service.")
-
-        except RequestException as e:
-            logger.error(f"Request failed: {str(e)}")
-            raise
-
-        except Exception as e:
-            logger.error(f"Unexpected error during audio analysis: {str(e)}")
-            raise RequestException(f"Unexpected error: {str(e)}")
-
-    def _parse_success_response(
-        self,
-        response: requests.Response,
-        filename: str,
-        engine: str,
-        total_processing_time: float
-    ) -> EmotionAnalysisResult:
-        """Parse successful API response into EmotionAnalysisResult"""
-        try:
-            response_data = response.json()
-            inference_response = InferenceResponse(**response_data)
-
-            if not inference_response.success:
-                raise ValueError(f"API returned error: {inference_response.message}")
-
-            # Extract predictions and metadata
-            predictions_data = inference_response.data.get('predictions', {})
-            audio_metadata_data = inference_response.data.get('audio_metadata')
-            inference_metadata_data = inference_response.data.get('inference_metadata')
-
-            # Create objects
-            predictions = EmotionPredictions(**predictions_data)
-
-            audio_metadata = None
-            if audio_metadata_data:
-                audio_metadata = AudioMetadata(**audio_metadata_data)
-
-            inference_metadata = None
-            if inference_metadata_data:
-                inference_metadata = InferenceMetadata(**inference_metadata_data)
-
-            # Create and return the result
-            return EmotionAnalysisResult(
-                source=filename,
-                engine=engine,
-                emotion=predictions.primary_emotion,
-                confidence=predictions.confidence,
-                probabilities=predictions.all_emotions,
-                processing_time=total_processing_time,
-                audio_metadata=audio_metadata,
-                inference_metadata=inference_metadata,
-                request_id=inference_response.request_id
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to parse successful response: {str(e)}")
-            raise ValueError(f"Invalid response format: {str(e)}")
+        # Redirect to v2 endpoint
+        logger.warning(
+            "analyze_audio_file() is deprecated. Redirecting to analyze_audio_local() (v2 API)"
+        )
+        return self.analyze_audio_local(audio_file, filename, audio_features=False)
 
     def analyze_audio_local(
         self,
         audio_file: BinaryIO,
-        filename: str
+        filename: str,
+        audio_features: bool = False
     ) -> EmotionAnalysisResult:
         """
-        Analyze audio file using local model endpoint (/v1/infer/local/latest).
+        Analyze audio file using v2 inference endpoint (POST /v2/inference).
 
-        This method uses the new local inference endpoint that returns
-        predictions with model info and processing time.
+        This method uses the latest v2 API endpoint that returns predictions
+        with model info and processing time.
 
         Args:
             audio_file: Audio file binary data
             filename: Name of the audio file
+            audio_features: Include audio features in response (requires feature flag)
 
         Returns:
             EmotionAnalysisResult: Complete analysis result
@@ -259,12 +302,18 @@ class SpeechEmotionAPIClient:
             # Prepare the file for upload with explicit content type
             files = {'file': (filename, audio_file, 'audio/wav')}
 
-            logger.info(f"Analyzing audio file locally: {filename}")
+            # Add audio_features query parameter if requested
+            params = {}
+            if audio_features:
+                params['audio_features'] = 'true'
 
-            # Make the request to the local inference endpoint
+            logger.info(f"Analyzing audio file locally: {filename} (audio_features={audio_features})")
+
+            # Make the request to the v2 inference endpoint
             response = self.session.post(
-                f"{self.base_url}/v1/infer/local/latest",
+                f"{self.base_url}/v2/inference",
                 files=files,
+                params=params,
                 timeout=self.timeout
             )
 
@@ -300,21 +349,25 @@ class SpeechEmotionAPIClient:
         total_processing_time: float
     ) -> EmotionAnalysisResult:
         """
-        Parse response from /v1/infer/local/latest endpoint.
+        Parse response from /v2/inference endpoint.
 
         Expected response format:
         {
-            "version": "2",
+            "version": "v4",
             "prediction": {
                 "emotion": "happy",
                 "confidence": 0.92,
-                "all_probabilities": {"happy": 0.92, "neutral": 0.05, ...}
+                "all_probabilities": {
+                    "angry": 0.01,
+                    "disgust": 0.02,
+                    "fear": 0.03,
+                    "happy": 0.92,
+                    "neutral": 0.01,
+                    "sad": 0.01
+                }
             },
-            "model_info": {
-                "type": "SVM Pipeline",
-                "features_used": 78
-            },
-            "processing_time_ms": 234
+            "processing_time_ms": 234,
+            "audio_features": {...}  # Optional
         }
         """
         try:
@@ -326,17 +379,22 @@ class SpeechEmotionAPIClient:
             confidence = prediction.get('confidence', 0.0)
             all_probabilities = prediction.get('all_probabilities', {})
 
+            # Extract version info
+            version = data.get('version', 'unknown')
+            prediction_id = data.get('prediction_id') or prediction.get('prediction_id')
+
             # Create and return the result
             return EmotionAnalysisResult(
                 source=filename,
-                engine="local",
+                engine=f"local-{version}",
                 emotion=emotion,
                 confidence=confidence,
                 probabilities=all_probabilities,
                 processing_time=total_processing_time,
                 audio_metadata=None,
                 inference_metadata=None,
-                request_id=None
+                request_id=None,
+                prediction_id=prediction_id
             )
 
         except Exception as e:
@@ -358,6 +416,22 @@ class SpeechEmotionAPIClient:
         except Exception as exc:
             logger.error(f"Unexpected monitoring error: {exc}")
             raise RequestException("Unable to fetch monitoring summary")
+
+    def fetch_monitoring_metrics_history(self) -> Dict[str, Any]:
+        """Retrieve aggregated metrics history for dashboard panels."""
+
+        try:
+            response = self.session.get(
+                f"{self.base_url}/v1/monitoring/metrics/history", timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+        except RequestException as exc:
+            logger.error(f"Monitoring metrics history request failed: {exc}")
+            raise
+        except Exception as exc:
+            logger.error(f"Unexpected monitoring history error: {exc}")
+            raise RequestException("Unable to fetch monitoring metrics history")
 
     def _handle_error_response(self, response: requests.Response) -> None:
         """Handle error responses from the API"""

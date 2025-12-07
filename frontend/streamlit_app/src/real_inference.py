@@ -125,6 +125,7 @@ class RealSpeechEmotionLab:
             feature_tracks=feature_tracks,
             timeline=timeline,
             visualizations=visuals,
+            prediction_id=real_result.prediction_id,
         )
 
     def _make_timeline_with_metadata(self, real_result: EmotionAnalysisResult) -> List[Dict[str, str]]:

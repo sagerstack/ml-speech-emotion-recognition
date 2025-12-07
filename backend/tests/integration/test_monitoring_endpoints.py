@@ -22,7 +22,9 @@ def stub_monitoring_service(tmp_path: Path):
 
     class StubService:
         def __init__(self) -> None:
-            self.buffer = SimpleNamespace(stats=lambda: {"total_records": 3, "latest_timestamp": "2024-01-01T00:00:00"})
+            self.buffer = SimpleNamespace(
+                stats=lambda: {"total_records": 3, "latest_timestamp": "2024-01-01T00:00:00"}
+            )
             self._report_path = report_path
 
         def summary(self):
@@ -46,8 +48,13 @@ def stub_monitoring_service(tmp_path: Path):
     return StubService()
 
 
-def test_monitoring_summary_returns_buffer_stats(client: TestClient, stub_monitoring_service, monkeypatch):
-    monkeypatch.setattr(monitoring_module, "get_monitoring_service", lambda: stub_monitoring_service)
+@pytest.mark.integration
+def test_monitoring_summary_returns_buffer_stats(
+    client: TestClient, stub_monitoring_service, monkeypatch
+):
+    monkeypatch.setattr(
+        monitoring_module, "get_monitoring_service", lambda: stub_monitoring_service
+    )
 
     response = client.get("/v1/monitoring/summary")
 
@@ -57,8 +64,13 @@ def test_monitoring_summary_returns_buffer_stats(client: TestClient, stub_monito
     assert payload["dashboard_url"] == "http://evidently.local"
 
 
-def test_generate_report_uses_service_and_returns_payload(client: TestClient, stub_monitoring_service, monkeypatch):
-    monkeypatch.setattr(monitoring_module, "get_monitoring_service", lambda: stub_monitoring_service)
+@pytest.mark.integration
+def test_generate_report_uses_service_and_returns_payload(
+    client: TestClient, stub_monitoring_service, monkeypatch
+):
+    monkeypatch.setattr(
+        monitoring_module, "get_monitoring_service", lambda: stub_monitoring_service
+    )
 
     response = client.post("/v1/monitoring/generate")
 
@@ -68,8 +80,11 @@ def test_generate_report_uses_service_and_returns_payload(client: TestClient, st
     assert body["report"]["name"] == "stub"
 
 
+@pytest.mark.integration
 def test_fetch_report_file_serves_html(client: TestClient, stub_monitoring_service, monkeypatch):
-    monkeypatch.setattr(monitoring_module, "get_monitoring_service", lambda: stub_monitoring_service)
+    monkeypatch.setattr(
+        monitoring_module, "get_monitoring_service", lambda: stub_monitoring_service
+    )
 
     response = client.get("/v1/monitoring/reports/stub")
 
@@ -77,8 +92,11 @@ def test_fetch_report_file_serves_html(client: TestClient, stub_monitoring_servi
     assert b"report" in response.content
 
 
+@pytest.mark.integration
 def test_fetch_missing_report_returns_404(client: TestClient, stub_monitoring_service, monkeypatch):
-    monkeypatch.setattr(monitoring_module, "get_monitoring_service", lambda: stub_monitoring_service)
+    monkeypatch.setattr(
+        monitoring_module, "get_monitoring_service", lambda: stub_monitoring_service
+    )
 
     response = client.get("/v1/monitoring/reports/unknown")
 
@@ -86,8 +104,13 @@ def test_fetch_missing_report_returns_404(client: TestClient, stub_monitoring_se
     assert response.json()["detail"] == "Report not found"
 
 
-def test_fetch_report_rejects_path_traversal(client: TestClient, stub_monitoring_service, monkeypatch):
-    monkeypatch.setattr(monitoring_module, "get_monitoring_service", lambda: stub_monitoring_service)
+@pytest.mark.integration
+def test_fetch_report_rejects_path_traversal(
+    client: TestClient, stub_monitoring_service, monkeypatch
+):
+    monkeypatch.setattr(
+        monitoring_module, "get_monitoring_service", lambda: stub_monitoring_service
+    )
 
     response = client.get("/v1/monitoring/reports/../secret")
 
