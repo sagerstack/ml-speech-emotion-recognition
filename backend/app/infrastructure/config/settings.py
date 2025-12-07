@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     # Monitoring Configuration
     prometheus_enabled: bool = True
     metrics_port: int = 9090
+    enable_model_monitoring: bool = True  # Enable/disable model monitoring (prediction logging)
     monitoring_reference_path: str | None = None
     monitoring_reports_dir: str = "monitoring_reports"
     monitoring_buffer_max_records: int = 500

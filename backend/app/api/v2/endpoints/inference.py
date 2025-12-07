@@ -23,6 +23,7 @@ from prometheus_client import Counter, Histogram
 from app.domain.model.exceptions.invalid_audio_error import InvalidAudioError
 from app.domain.model.exceptions.model_not_found_error import ModelNotFoundError
 from app.domain.model.exceptions.prediction_failed_error import PredictionFailedError
+from app.infrastructure.config import get_settings
 from app.infrastructure.config.feature_flags import FeatureFlags, get_feature_flags
 from app.infrastructure.di.providers import (
     get_model_info_use_case,
@@ -333,8 +334,8 @@ async def infer_latest(
     3. Converts between API models and domain entities
     4. Delegates business logic to use cases
 
-    Monitoring is always enabled for v2 API, ensuring comprehensive data collection
-    for drift detection and model performance tracking.
+    Monitoring can be enabled/disabled via ENABLE_MODEL_MONITORING environment variable
+    for comprehensive data collection for drift detection and model performance tracking.
 
     Args:
         file: Audio file (WAV, MP3, M4A)
@@ -372,12 +373,13 @@ async def infer_latest(
     """
     start_time = time.time()
     version_used = "unknown"
+    settings = get_settings()
 
     # Check if audio_features should be included based on feature flag
     should_include_features = feature_flags.should_include_audio_features(requested=audio_features)
 
-    # Monitoring is always enabled for v2 API
-    monitoring_enabled = True
+    # Monitoring controlled by ENABLE_MODEL_MONITORING environment variable
+    monitoring_enabled = settings.enable_model_monitoring
 
     logger.info(
         "v2 inference request received",
