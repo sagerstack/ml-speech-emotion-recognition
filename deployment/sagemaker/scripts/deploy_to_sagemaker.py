@@ -43,13 +43,14 @@ class SageMakerDeployer:
         'eu-west-1': '141502667606.dkr.ecr.eu-west-1.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3',
     }
 
-    def __init__(self, region: str, execution_role_name: str = None):
+    def __init__(self, region: str, execution_role_name: str = None, execution_role_arn: str = None):
         """
         Initialize SageMaker deployer.
 
         Args:
             region: AWS region
             execution_role_name: Name of SageMaker execution role (will be auto-detected if not provided)
+            execution_role_arn: ARN of SageMaker execution role (takes precedence over execution_role_name)
         """
         self.region = region
         self.sagemaker_client = boto3.client('sagemaker', region_name=region)
@@ -62,7 +63,10 @@ class SageMakerDeployer:
         )
 
         # Get or discover execution role
-        if execution_role_name:
+        if execution_role_arn:
+            # Use ARN directly (no IAM API call needed)
+            self.execution_role_arn = execution_role_arn
+        elif execution_role_name:
             self.execution_role_arn = self._get_role_arn(execution_role_name)
         else:
             self.execution_role_arn = self._discover_sagemaker_role()
@@ -335,6 +339,7 @@ def main():
     parser.add_argument('--s3-uri', required=True, help='S3 URI of model.tar.gz')
     parser.add_argument('--region', default='us-east-1', help='AWS region')
     parser.add_argument('--execution-role', help='SageMaker execution role name (auto-discovered if not provided)')
+    parser.add_argument('--execution-role-arn', help='SageMaker execution role ARN (takes precedence over --execution-role)')
     parser.add_argument('--timeout', type=int, default=900, help='Deployment timeout in seconds')
 
     args = parser.parse_args()
@@ -343,7 +348,8 @@ def main():
         # Initialize deployer
         deployer = SageMakerDeployer(
             region=args.region,
-            execution_role_name=args.execution_role
+            execution_role_name=args.execution_role,
+            execution_role_arn=args.execution_role_arn
         )
 
         # Generate resource names

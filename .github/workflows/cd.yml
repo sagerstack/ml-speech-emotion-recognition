@@ -118,7 +118,7 @@ jobs:
             --instance-type ml.t3.medium \
             --s3-uri "$S3_MODEL_URI" \
             --region "${{ env.AWS_REGION }}" \
-            --execution-role ml-speech-emotion-prod-sagemaker-execution \
+            --execution-role-arn "arn:aws:iam::303440520181:role/ml-speech-emotion-prod-sagemaker-execution" \
             --timeout 900
 
           echo ""
