@@ -5,6 +5,10 @@ set -e
 # Usage: ./scripts/download_model_from_s3.sh <version> [--profile <aws-profile>]
 # Example: ./scripts/download_model_from_s3.sh v5 --profile ml-ser-deploy
 
+# Determine project root directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -45,9 +49,9 @@ fi
 
 # Get S3 bucket name from Terraform output
 echo -e "${BLUE}📡 Fetching S3 bucket name from Terraform...${NC}"
-cd deployment/terraform
+cd "$PROJECT_ROOT/deployment/terraform"
 S3_BUCKET=$(terraform output -raw model_storage_bucket_name 2>/dev/null || echo "")
-cd ../..
+cd "$PROJECT_ROOT"
 
 if [ -z "$S3_BUCKET" ]; then
   echo -e "${RED}❌ Error: Could not get S3 bucket name from Terraform${NC}"
@@ -59,8 +63,8 @@ fi
 echo -e "${GREEN}✓ Using S3 bucket: $S3_BUCKET${NC}"
 
 # Define paths
-MODEL_DIR="backend/models/$MODEL_VERSION"
-METADATA_DIR="backend/app/infrastructure/model/$MODEL_VERSION"
+MODEL_DIR="$PROJECT_ROOT/backend/models/$MODEL_VERSION"
+METADATA_DIR="$PROJECT_ROOT/backend/app/infrastructure/model/$MODEL_VERSION"
 
 # Create directories
 echo -e "${BLUE}📁 Creating directories...${NC}"

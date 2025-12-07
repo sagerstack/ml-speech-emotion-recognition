@@ -27,6 +27,9 @@ import librosa
 # Import feature extractor - will be packaged with model
 from feature_extractor import extract_features
 
+# Import UltraEnsembleModel - required for unpickling model.pkl
+from ultra_ensemble import UltraEnsembleModel
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

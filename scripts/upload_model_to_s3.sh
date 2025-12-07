@@ -5,6 +5,10 @@ set -e
 # Usage: ./scripts/upload_model_to_s3.sh <version> [--profile <aws-profile>]
 # Example: ./scripts/upload_model_to_s3.sh v5 --profile ml-ser-deploy
 
+# Determine project root directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -48,9 +52,9 @@ fi
 
 # Get S3 bucket name from Terraform output
 echo -e "${BLUE}📡 Fetching S3 bucket name from Terraform...${NC}"
-cd deployment/terraform
+cd "$PROJECT_ROOT/deployment/terraform"
 S3_BUCKET=$(terraform output -raw model_storage_bucket_name 2>/dev/null || echo "")
-cd ../..
+cd "$PROJECT_ROOT"
 
 if [ -z "$S3_BUCKET" ]; then
   echo -e "${RED}❌ Error: Could not get S3 bucket name from Terraform${NC}"
@@ -61,9 +65,8 @@ fi
 
 echo -e "${GREEN}✓ Using S3 bucket: $S3_BUCKET${NC}"
 
-# Define paths
-MODEL_DIR="backend/models/$MODEL_VERSION"
-METADATA_DIR="backend/app/infrastructure/model/$MODEL_VERSION"
+# Define paths (all files should be in MODEL_DIR)
+MODEL_DIR="$PROJECT_ROOT/backend/models/$MODEL_VERSION"
 
 # Validate model files exist locally
 echo -e "${BLUE}🔍 Validating model files...${NC}"
@@ -74,17 +77,29 @@ if [ ! -f "$MODEL_DIR/model.pkl" ]; then
 fi
 echo -e "${GREEN}  ✓ Found model.pkl ($(du -h "$MODEL_DIR/model.pkl" | cut -f1))${NC}"
 
-if [ ! -f "$METADATA_DIR/metadata.json" ]; then
-  echo -e "${RED}❌ Error: Metadata not found at $METADATA_DIR/metadata.json${NC}"
+if [ ! -f "$MODEL_DIR/metadata.json" ]; then
+  echo -e "${RED}❌ Error: Metadata not found at $MODEL_DIR/metadata.json${NC}"
   exit 1
 fi
 echo -e "${GREEN}  ✓ Found metadata.json${NC}"
 
-if [ ! -f "$METADATA_DIR/feature_extractor.py" ]; then
-  echo -e "${RED}❌ Error: Feature extractor not found at $METADATA_DIR/feature_extractor.py${NC}"
+if [ ! -f "$MODEL_DIR/ultra_ensemble.py" ]; then
+  echo -e "${RED}❌ Error: UltraEnsembleModel class not found at $MODEL_DIR/ultra_ensemble.py${NC}"
   exit 1
 fi
-echo -e "${GREEN}  ✓ Found feature_extractor.py${NC}"
+echo -e "${GREEN}  ✓ Found ultra_ensemble.py${NC}"
+
+if [ ! -f "$MODEL_DIR/inference.py" ]; then
+  echo -e "${RED}❌ Error: Inference handler not found at $MODEL_DIR/inference.py${NC}"
+  exit 1
+fi
+echo -e "${GREEN}  ✓ Found inference.py${NC}"
+
+if [ ! -f "$MODEL_DIR/requirements.txt" ]; then
+  echo -e "${RED}❌ Error: Requirements not found at $MODEL_DIR/requirements.txt${NC}"
+  exit 1
+fi
+echo -e "${GREEN}  ✓ Found requirements.txt${NC}"
 
 # Upload files to S3
 echo ""
@@ -101,28 +116,35 @@ echo -e "${GREEN}  ✓ model.pkl uploaded${NC}"
 
 # Upload metadata.json
 echo -e "${YELLOW}  → Uploading metadata.json...${NC}"
-aws s3 cp "$METADATA_DIR/metadata.json" \
+aws s3 cp "$MODEL_DIR/metadata.json" \
   "s3://$S3_BUCKET/raw-models/$MODEL_VERSION/metadata.json" \
   --profile "$AWS_PROFILE"
 
 echo -e "${GREEN}  ✓ metadata.json uploaded${NC}"
 
-# Upload feature_extractor.py
-echo -e "${YELLOW}  → Uploading feature_extractor.py...${NC}"
-aws s3 cp "$METADATA_DIR/feature_extractor.py" \
-  "s3://$S3_BUCKET/raw-models/$MODEL_VERSION/feature_extractor.py" \
+# Upload ultra_ensemble.py (CRITICAL for unpickling model.pkl)
+echo -e "${YELLOW}  → Uploading ultra_ensemble.py...${NC}"
+aws s3 cp "$MODEL_DIR/ultra_ensemble.py" \
+  "s3://$S3_BUCKET/raw-models/$MODEL_VERSION/ultra_ensemble.py" \
   --profile "$AWS_PROFILE"
 
-echo -e "${GREEN}  ✓ feature_extractor.py uploaded${NC}"
+echo -e "${GREEN}  ✓ ultra_ensemble.py uploaded${NC}"
 
-# Upload __init__.py if exists
-if [ -f "$METADATA_DIR/__init__.py" ]; then
-  echo -e "${YELLOW}  → Uploading __init__.py...${NC}"
-  aws s3 cp "$METADATA_DIR/__init__.py" \
-    "s3://$S3_BUCKET/raw-models/$MODEL_VERSION/__init__.py" \
-    --profile "$AWS_PROFILE"
-  echo -e "${GREEN}  ✓ __init__.py uploaded${NC}"
-fi
+# Upload inference.py (SageMaker inference handler)
+echo -e "${YELLOW}  → Uploading inference.py...${NC}"
+aws s3 cp "$MODEL_DIR/inference.py" \
+  "s3://$S3_BUCKET/raw-models/$MODEL_VERSION/inference.py" \
+  --profile "$AWS_PROFILE"
+
+echo -e "${GREEN}  ✓ inference.py uploaded${NC}"
+
+# Upload requirements.txt (Python dependencies)
+echo -e "${YELLOW}  → Uploading requirements.txt...${NC}"
+aws s3 cp "$MODEL_DIR/requirements.txt" \
+  "s3://$S3_BUCKET/raw-models/$MODEL_VERSION/requirements.txt" \
+  --profile "$AWS_PROFILE"
+
+echo -e "${GREEN}  ✓ requirements.txt uploaded${NC}"
 
 # Create and upload manifest
 echo -e "${YELLOW}  → Creating upload manifest...${NC}"
@@ -150,12 +172,73 @@ aws s3 cp /tmp/manifest.json \
 echo -e "${GREEN}  ✓ manifest.json uploaded${NC}"
 rm /tmp/manifest.json
 
-# Success message
+# Success message for raw models
 echo ""
-echo -e "${GREEN}✅ Model $MODEL_VERSION uploaded successfully!${NC}"
+echo -e "${GREEN}✅ Raw model files uploaded successfully!${NC}"
 echo -e "${BLUE}   S3 URI: s3://$S3_BUCKET/raw-models/$MODEL_VERSION/${NC}"
+
+# ============================================================================
+# Package for SageMaker
+# ============================================================================
+
+echo ""
+echo -e "${BLUE}📦 Packaging model for SageMaker deployment...${NC}"
+echo ""
+
+# Create temporary packaging directory
+TEMP_PACKAGE_DIR="/tmp/sagemaker_package_$$"
+mkdir -p "$TEMP_PACKAGE_DIR/code"
+
+# Copy model files to package structure
+echo -e "${YELLOW}  → Copying files to package structure...${NC}"
+
+# Root level files
+cp "$MODEL_DIR/model.pkl" "$TEMP_PACKAGE_DIR/"
+cp "$MODEL_DIR/metadata.json" "$TEMP_PACKAGE_DIR/"
+
+# Code directory
+cp "$MODEL_DIR/ultra_ensemble.py" "$TEMP_PACKAGE_DIR/code/"
+cp "$MODEL_DIR/inference.py" "$TEMP_PACKAGE_DIR/code/"
+cp "$MODEL_DIR/requirements.txt" "$TEMP_PACKAGE_DIR/code/"
+
+echo -e "${GREEN}  ✓ Files copied to package structure${NC}"
+
+# Create tar.gz archive
+echo -e "${YELLOW}  → Creating model.tar.gz (this may take a few minutes)...${NC}"
+cd "$TEMP_PACKAGE_DIR"
+tar -czf "$PROJECT_ROOT/model.tar.gz" .
+cd "$PROJECT_ROOT"
+
+PACKAGE_SIZE=$(du -h model.tar.gz | cut -f1)
+echo -e "${GREEN}  ✓ model.tar.gz created ($PACKAGE_SIZE)${NC}"
+
+# Upload SageMaker package to S3
+echo ""
+echo -e "${YELLOW}  → Uploading SageMaker package to S3...${NC}"
+aws s3 cp model.tar.gz \
+  "s3://$S3_BUCKET/sagemaker-models/$MODEL_VERSION/model.tar.gz" \
+  --profile "$AWS_PROFILE" \
+  --no-progress
+
+echo -e "${GREEN}  ✓ SageMaker package uploaded${NC}"
+
+# Cleanup
+rm -rf "$TEMP_PACKAGE_DIR"
+rm model.tar.gz
+
+# Final success message
+echo ""
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}✅ Model $MODEL_VERSION uploaded and packaged successfully!${NC}"
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "${BLUE}📁 Raw model files:${NC}"
+echo "   s3://$S3_BUCKET/raw-models/$MODEL_VERSION/"
+echo ""
+echo -e "${BLUE}📦 SageMaker package:${NC}"
+echo "   s3://$S3_BUCKET/sagemaker-models/$MODEL_VERSION/model.tar.gz"
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
-echo "  1. Verify upload: aws s3 ls s3://$S3_BUCKET/raw-models/$MODEL_VERSION/ --profile $AWS_PROFILE"
+echo "  1. Verify upload: aws s3 ls s3://$S3_BUCKET/sagemaker-models/$MODEL_VERSION/ --profile $AWS_PROFILE"
 echo "  2. Trigger deployment: gh workflow run cd.yml -f model_version=$MODEL_VERSION"
 echo ""

@@ -63,16 +63,4 @@ resource "aws_s3_bucket_lifecycle_configuration" "model_storage" {
       noncurrent_days = 365
     }
   }
-
-  # Keep all raw model versions (no expiration)
-  rule {
-    id     = "keep-raw-models"
-    status = "Enabled"
-
-    filter {
-      prefix = "raw-models/"
-    }
-
-    # No expiration - keep all raw models for audit/rollback
-  }
 }
