@@ -144,7 +144,7 @@ class SageMakerDeployer:
             return model_arn
 
         except ClientError as e:
-            if e.response['Error']['Code'] == 'ValidationException' and 'already exists' in str(e):
+            if e.response['Error']['Code'] == 'ValidationException' and ('already exists' in str(e) or 'already existing' in str(e)):
                 logger.warning(f"Model {model_name} already exists, skipping creation")
                 # Get existing model ARN
                 response = self.sagemaker_client.describe_model(ModelName=model_name)
