@@ -46,18 +46,12 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
 
-      - name: Get S3 bucket name from Terraform
-        id: terraform-outputs
-        working-directory: deployment/terraform
+      - name: Set S3 bucket name
+        id: set-bucket
         run: |
-          # Get S3 bucket name for model storage
-          MODEL_BUCKET=$(terraform output -raw model_storage_bucket_name 2>/dev/null || echo "")
-
-          if [ -z "$MODEL_BUCKET" ]; then
-            echo "❌ Error: Could not get S3 bucket name from Terraform outputs"
-            echo "Please ensure Terraform has been applied successfully"
-            exit 1
-          fi
+          # Derive bucket name from project naming convention
+          # Format: ${project_name}-models-${aws_region}
+          MODEL_BUCKET="ml-speech-emotion-models-${AWS_REGION}"
 
           echo "MODEL_BUCKET=${MODEL_BUCKET}" >> $GITHUB_ENV
           echo "✓ Using S3 bucket: ${MODEL_BUCKET}"
