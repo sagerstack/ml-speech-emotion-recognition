@@ -12,6 +12,11 @@ on:
         required: false
         type: boolean
         default: false
+      endpoint_name:
+        description: 'SageMaker endpoint name (default: ml-emotion-prod)'
+        required: false
+        type: string
+        default: 'ml-emotion-prod'
 
 env:
   AWS_REGION: us-east-1
@@ -20,7 +25,7 @@ env:
   KUSTOMIZE_DIR: deployment/k8s/prod
   BACKEND_REPO_NAME: ml-speech-emotion-backend
   STREAMLIT_REPO_NAME: ml-speech-emotion-streamlit
-  SAGEMAKER_ENDPOINT_NAME: ml-emotion-prod
+  SAGEMAKER_ENDPOINT_NAME: ${{ inputs.endpoint_name || 'ml-emotion-prod' }}
 
 jobs:
   deploy-model-to-sagemaker:
