@@ -36,11 +36,12 @@ class SageMakerDeployer:
     """Handles deployment of models to SageMaker endpoints."""
 
     # AWS pre-built scikit-learn container images by region
+    # Using 1.4-2-cpu-py3 which has sklearn 1.4.2 + numpy 2.x support
     # Reference: https://docs.aws.amazon.com/sagemaker/latest/dg/pre-built-containers-frameworks-deep-learning.html
     SKLEARN_CONTAINER_IMAGES = {
-        'us-east-1': '683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3',
-        'us-west-2': '246618743249.dkr.ecr.us-west-2.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3',
-        'eu-west-1': '141502667606.dkr.ecr.eu-west-1.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3',
+        'us-east-1': '683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:1.4-2-cpu-py3',
+        'us-west-2': '246618743249.dkr.ecr.us-west-2.amazonaws.com/sagemaker-scikit-learn:1.4-2-cpu-py3',
+        'eu-west-1': '141502667606.dkr.ecr.eu-west-1.amazonaws.com/sagemaker-scikit-learn:1.4-2-cpu-py3',
     }
 
     def __init__(self, region: str, execution_role_name: str = None, execution_role_arn: str = None):
