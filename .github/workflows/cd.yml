@@ -40,15 +40,63 @@ jobs:
           STREAMLIT_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${STREAMLIT_REPO_NAME}"
 
           # Use same short SHA format as CI (first 7 chars)
-          IMAGE_TAG="${GITHUB_SHA:0:7}"
+          DESIRED_TAG="${GITHUB_SHA:0:7}"
+
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔍 Checking image availability in ECR..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Desired tag (from commit SHA): ${DESIRED_TAG}"
+          echo ""
+
+          # Check if backend image with desired tag exists
+          BACKEND_EXISTS=$(aws ecr describe-images \
+            --repository-name ${BACKEND_REPO_NAME} \
+            --region ${AWS_REGION} \
+            --image-ids imageTag=${DESIRED_TAG} \
+            --query 'imageDetails[0].imageTags[0]' \
+            --output text 2>/dev/null || echo "")
+
+          # Check if streamlit image with desired tag exists
+          STREAMLIT_EXISTS=$(aws ecr describe-images \
+            --repository-name ${STREAMLIT_REPO_NAME} \
+            --region ${AWS_REGION} \
+            --image-ids imageTag=${DESIRED_TAG} \
+            --query 'imageDetails[0].imageTags[0]' \
+            --output text 2>/dev/null || echo "")
+
+          # Determine which tag to use
+          if [ -n "$BACKEND_EXISTS" ] && [ -n "$STREAMLIT_EXISTS" ]; then
+            IMAGE_TAG="${DESIRED_TAG}"
+            echo "✓ Found images with tag: ${DESIRED_TAG}"
+            echo "  Backend:   ${BACKEND_IMAGE}:${IMAGE_TAG} ✓"
+            echo "  Streamlit: ${STREAMLIT_IMAGE}:${IMAGE_TAG} ✓"
+          else
+            IMAGE_TAG="latest"
+            echo "⚠ Images with tag ${DESIRED_TAG} not found in ECR"
+            echo ""
+            echo "Missing images:"
+            [ -z "$BACKEND_EXISTS" ] && echo "  ✗ Backend:   ${BACKEND_IMAGE}:${DESIRED_TAG}"
+            [ -z "$STREAMLIT_EXISTS" ] && echo "  ✗ Streamlit: ${STREAMLIT_IMAGE}:${DESIRED_TAG}"
+            echo ""
+            echo "📌 Falling back to: latest"
+            echo "  Backend:   ${BACKEND_IMAGE}:latest"
+            echo "  Streamlit: ${STREAMLIT_IMAGE}:latest"
+            echo ""
+            echo "💡 Note: This usually happens when CI workflow was cancelled or failed."
+            echo "   The 'latest' tag points to the most recent successful build."
+          fi
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
           echo "BACKEND_IMAGE=${BACKEND_IMAGE}" >> $GITHUB_ENV
           echo "STREAMLIT_IMAGE=${STREAMLIT_IMAGE}" >> $GITHUB_ENV
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "DESIRED_TAG=${DESIRED_TAG}" >> $GITHUB_ENV
 
-          echo "Deploying images with tag: ${IMAGE_TAG}"
-          echo "Backend: ${BACKEND_IMAGE}:${IMAGE_TAG}"
-          echo "Streamlit: ${STREAMLIT_IMAGE}:${IMAGE_TAG}"
+          echo ""
+          echo "🚀 Proceeding with deployment using tag: ${IMAGE_TAG}"
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
@@ -237,12 +285,24 @@ jobs:
       - name: Display application URLs
         run: |
           ALB_ADDRESS="${{ env.ALB_ADDRESS }}"
+          IMAGE_TAG="${{ env.IMAGE_TAG }}"
+          DESIRED_TAG="${{ env.DESIRED_TAG }}"
 
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🎉 Deployment Successful!"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
+
+          # Show deployed image version
+          if [ "$IMAGE_TAG" = "$DESIRED_TAG" ]; then
+            echo "📦 Deployed Image Tag: ${IMAGE_TAG} (from commit ${DESIRED_TAG})"
+          else
+            echo "📦 Deployed Image Tag: ${IMAGE_TAG}"
+            echo "   ⚠ Note: Desired tag ${DESIRED_TAG} not found in ECR, used ${IMAGE_TAG} instead"
+          fi
+          echo ""
+
           echo "📱 Application URLs:"
           echo "   Frontend (Streamlit):  http://${ALB_ADDRESS}/"
           echo "   Backend API:           http://${ALB_ADDRESS}/api"
