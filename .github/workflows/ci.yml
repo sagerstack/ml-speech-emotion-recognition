@@ -50,7 +50,7 @@ jobs:
         run: poetry install --with dev --no-interaction --no-ansi
 
       - name: Run unit tests
-        run: poetry run pytest -m unit --maxfail=1 --no-cov
+        run: poetry run pytest -m unit --maxfail=1 -p no:pytest_cov
 
   terraform-format:
     runs-on: ubuntu-latest
