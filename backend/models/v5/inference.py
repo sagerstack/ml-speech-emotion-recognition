@@ -20,12 +20,19 @@ import os
 import pickle
 import json
 import logging
+import sys
 from typing import Dict, Any
 
 import numpy as np
 
 # Import UltraEnsembleModel - REQUIRED for unpickling model.pkl
 from ultra_ensemble import UltraEnsembleModel
+
+# CRITICAL FIX: Inject UltraEnsembleModel into __main__ namespace
+# The pickle file was serialized with UltraEnsembleModel referenced from __main__.
+# When SageMaker unpickles, __main__ is gunicorn, so we inject the class there.
+import __main__
+__main__.UltraEnsembleModel = UltraEnsembleModel
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
