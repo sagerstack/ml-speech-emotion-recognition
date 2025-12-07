@@ -33,7 +33,7 @@ echo -e "  Namespace:   ${GREEN}${K8S_NAMESPACE}${NC}"
 echo ""
 
 # Step 1: Check if cluster exists and is accessible
-echo -e "${YELLOW}[Step 1/6]${NC} Checking EKS cluster accessibility..."
+echo -e "${YELLOW}[Step 1/7]${NC} Checking EKS cluster accessibility..."
 
 if ! aws eks describe-cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --profile "$AWS_PROFILE" &>/dev/null; then
     echo -e "${YELLOW}⚠️  EKS cluster not found or not accessible${NC}"
@@ -52,7 +52,7 @@ fi
 # Step 2: Delete Kubernetes resources if cluster is accessible
 if [ "$SKIP_K8S_CLEANUP" = false ]; then
     echo ""
-    echo -e "${YELLOW}[Step 2/6]${NC} Deleting Kubernetes resources..."
+    echo -e "${YELLOW}[Step 2/7]${NC} Deleting Kubernetes resources..."
 
     # Check if app namespace exists
     if kubectl get namespace "$K8S_NAMESPACE" &>/dev/null; then
@@ -89,13 +89,13 @@ if [ "$SKIP_K8S_CLEANUP" = false ]; then
     fi
 else
     echo ""
-    echo -e "${YELLOW}[Step 2/6]${NC} Skipping Kubernetes cleanup (cluster not accessible)"
+    echo -e "${YELLOW}[Step 2/7]${NC} Skipping Kubernetes cleanup (cluster not accessible)"
 fi
 
 # Step 3: Wait for AWS Load Balancer Controller to clean up resources
 if [ "$SKIP_K8S_CLEANUP" = false ]; then
     echo ""
-    echo -e "${YELLOW}[Step 3/6]${NC} Waiting for AWS Load Balancer Controller to clean up AWS resources..."
+    echo -e "${YELLOW}[Step 3/7]${NC} Waiting for AWS Load Balancer Controller to clean up AWS resources..."
     echo -e "${YELLOW}   This typically takes 30-60 seconds...${NC}"
 
     for i in {60..1}; do
@@ -106,12 +106,75 @@ if [ "$SKIP_K8S_CLEANUP" = false ]; then
     echo -e "${GREEN}✓${NC} Wait period complete"
 else
     echo ""
-    echo -e "${YELLOW}[Step 3/6]${NC} Skipping wait period (no Kubernetes cleanup performed)"
+    echo -e "${YELLOW}[Step 3/7]${NC} Skipping wait period (no Kubernetes cleanup performed)"
 fi
 
-# Step 4: Manual cleanup of any orphaned AWS resources
+# Step 4: Clean up SageMaker resources (CRITICAL - these cost money!)
 echo ""
-echo -e "${YELLOW}[Step 4/6]${NC} Checking for orphaned AWS resources..."
+echo -e "${YELLOW}[Step 4/7]${NC} Cleaning up SageMaker resources..."
+
+# Delete SageMaker endpoints (highest cost - runs 24/7)
+echo -e "${YELLOW}   Checking for SageMaker endpoints...${NC}"
+ENDPOINTS=$(aws sagemaker list-endpoints --region "$AWS_REGION" --query "Endpoints[?contains(EndpointName, 'ml-emotion')].EndpointName" --output text 2>/dev/null || echo "")
+
+if [ -n "$ENDPOINTS" ]; then
+    echo -e "${RED}   Found SageMaker endpoints (these cost ~\$36/month each!)${NC}"
+    for endpoint in $ENDPOINTS; do
+        echo -e "${YELLOW}   Deleting endpoint: $endpoint${NC}"
+        aws sagemaker delete-endpoint --endpoint-name "$endpoint" --region "$AWS_REGION" 2>/dev/null || true
+    done
+    echo -e "${GREEN}✓${NC} SageMaker endpoints deleted"
+else
+    echo -e "${GREEN}✓${NC} No SageMaker endpoints found"
+fi
+
+# Delete SageMaker endpoint configurations
+echo -e "${YELLOW}   Checking for SageMaker endpoint configs...${NC}"
+CONFIGS=$(aws sagemaker list-endpoint-configs --region "$AWS_REGION" --query "EndpointConfigs[?contains(EndpointConfigName, 'ml-emotion')].EndpointConfigName" --output text 2>/dev/null || echo "")
+
+if [ -n "$CONFIGS" ]; then
+    # Wait for endpoints to fully delete before removing configs
+    if [ -n "$ENDPOINTS" ]; then
+        echo -e "${YELLOW}   Waiting 30s for endpoints to fully delete...${NC}"
+        sleep 30
+    fi
+
+    for config in $CONFIGS; do
+        echo -e "${YELLOW}   Deleting endpoint config: $config${NC}"
+        aws sagemaker delete-endpoint-config --endpoint-config-name "$config" --region "$AWS_REGION" 2>/dev/null || true
+    done
+    echo -e "${GREEN}✓${NC} SageMaker endpoint configs deleted"
+else
+    echo -e "${GREEN}✓${NC} No SageMaker endpoint configs found"
+fi
+
+# Delete SageMaker models
+echo -e "${YELLOW}   Checking for SageMaker models...${NC}"
+MODELS=$(aws sagemaker list-models --region "$AWS_REGION" --query "Models[?contains(ModelName, 'ml-emotion')].ModelName" --output text 2>/dev/null || echo "")
+
+if [ -n "$MODELS" ]; then
+    for model in $MODELS; do
+        echo -e "${YELLOW}   Deleting model: $model${NC}"
+        aws sagemaker delete-model --model-name "$model" --region "$AWS_REGION" 2>/dev/null || true
+    done
+    echo -e "${GREEN}✓${NC} SageMaker models deleted"
+else
+    echo -e "${GREEN}✓${NC} No SageMaker models found"
+fi
+
+# Delete SageMaker custom container ECR repository
+echo -e "${YELLOW}   Checking for SageMaker ECR repository...${NC}"
+if aws ecr describe-repositories --repository-names "ml-speech-emotion-sklearn" --region "$AWS_REGION" > /dev/null 2>&1; then
+    echo -e "${YELLOW}   Deleting ECR repository: ml-speech-emotion-sklearn${NC}"
+    aws ecr delete-repository --repository-name "ml-speech-emotion-sklearn" --region "$AWS_REGION" --force 2>/dev/null || true
+    echo -e "${GREEN}✓${NC} SageMaker ECR repository deleted"
+else
+    echo -e "${GREEN}✓${NC} No SageMaker ECR repository found"
+fi
+
+# Step 5: Manual cleanup of orphaned AWS resources
+echo ""
+echo -e "${YELLOW}[Step 5/7]${NC} Checking for orphaned AWS resources..."
 
 # Get VPC ID from Terraform state
 VPC_ID=$(cd "$(dirname "$0")" && terraform output -raw vpc_id 2>/dev/null || echo "")
@@ -136,28 +199,73 @@ if [ -n "$VPC_ID" ]; then
         echo -e "${GREEN}✓${NC} No orphaned load balancers found"
     fi
 
+    # Check for target groups (orphaned from deleted load balancers)
+    echo -e "${YELLOW}   Checking for orphaned target groups...${NC}"
+    TGS=$(aws elbv2 describe-target-groups --region "$AWS_REGION" --query "TargetGroups[?VpcId=='$VPC_ID' && contains(TargetGroupName, 'k8s')].TargetGroupArn" --output text 2>/dev/null || echo "")
+
+    if [ -n "$TGS" ]; then
+        echo -e "${RED}   Found orphaned target groups, deleting...${NC}"
+        for tg_arn in $TGS; do
+            echo -e "${YELLOW}   Deleting: $tg_arn${NC}"
+            aws elbv2 delete-target-group --target-group-arn "$tg_arn" --region "$AWS_REGION" 2>/dev/null || true
+        done
+        echo -e "${GREEN}✓${NC} Orphaned target groups deleted"
+    else
+        echo -e "${GREEN}✓${NC} No orphaned target groups found"
+    fi
+
     # Check for security groups
     echo -e "${YELLOW}   Checking for Kubernetes security groups...${NC}"
-    K8S_SGS=$(AWS_PROFILE="$AWS_PROFILE" aws ec2 describe-security-groups --region "$AWS_REGION" --filters "Name=vpc-id,Values=$VPC_ID" --query "SecurityGroups[?contains(GroupName, 'k8s')].GroupId" --output text 2>/dev/null || echo "")
+    K8S_SGS=$(aws ec2 describe-security-groups --region "$AWS_REGION" --filters "Name=vpc-id,Values=$VPC_ID" --query "SecurityGroups[?contains(GroupName, 'k8s')].GroupId" --output text 2>/dev/null || echo "")
 
     if [ -n "$K8S_SGS" ]; then
         echo -e "${RED}   Found orphaned Kubernetes security groups, deleting...${NC}"
         for sg_id in $K8S_SGS; do
             echo -e "${YELLOW}   Deleting: $sg_id${NC}"
-            AWS_PROFILE="$AWS_PROFILE" aws ec2 delete-security-group --group-id "$sg_id" --region "$AWS_REGION" 2>/dev/null || true
+            aws ec2 delete-security-group --group-id "$sg_id" --region "$AWS_REGION" 2>/dev/null || true
         done
         echo -e "${GREEN}✓${NC} Orphaned security groups deleted"
     else
         echo -e "${GREEN}✓${NC} No orphaned Kubernetes security groups found"
     fi
+
+    # Check for orphaned EBS volumes (from PVCs)
+    echo -e "${YELLOW}   Checking for EBS volumes with Kubernetes tags...${NC}"
+    VOLUMES=$(aws ec2 describe-volumes --region "$AWS_REGION" --filters "Name=tag-key,Values=kubernetes.io/cluster/${EKS_CLUSTER_NAME}" --query "Volumes[?State=='available'].VolumeId" --output text 2>/dev/null || echo "")
+
+    if [ -n "$VOLUMES" ]; then
+        echo -e "${RED}   Found orphaned EBS volumes, deleting...${NC}"
+        for vol_id in $VOLUMES; do
+            echo -e "${YELLOW}   Deleting: $vol_id${NC}"
+            aws ec2 delete-volume --volume-id "$vol_id" --region "$AWS_REGION" 2>/dev/null || true
+        done
+        echo -e "${GREEN}✓${NC} Orphaned EBS volumes deleted"
+    else
+        echo -e "${GREEN}✓${NC} No orphaned EBS volumes found"
+    fi
 else
     echo -e "${YELLOW}⚠️  Could not retrieve VPC ID from Terraform state${NC}"
-    echo -e "${YELLOW}   Skipping orphaned resource check...${NC}"
+    echo -e "${YELLOW}   Skipping VPC-based orphaned resource check...${NC}"
 fi
 
-# Step 5: Refresh Terraform state to sync with AWS reality
+# Clean up CloudWatch log groups (not VPC-specific)
+echo -e "${YELLOW}   Checking for CloudWatch log groups...${NC}"
+LOG_GROUPS=$(aws logs describe-log-groups --region "$AWS_REGION" --query "logGroups[?starts_with(logGroupName, '/aws/sagemaker/') || starts_with(logGroupName, '/aws/eks/${EKS_CLUSTER_NAME}')].logGroupName" --output text 2>/dev/null || echo "")
+
+if [ -n "$LOG_GROUPS" ]; then
+    echo -e "${RED}   Found CloudWatch log groups, deleting...${NC}"
+    for log_group in $LOG_GROUPS; do
+        echo -e "${YELLOW}   Deleting: $log_group${NC}"
+        aws logs delete-log-group --log-group-name "$log_group" --region "$AWS_REGION" 2>/dev/null || true
+    done
+    echo -e "${GREEN}✓${NC} CloudWatch log groups deleted"
+else
+    echo -e "${GREEN}✓${NC} No CloudWatch log groups found"
+fi
+
+# Step 6: Refresh Terraform state to sync with AWS reality
 echo ""
-echo -e "${YELLOW}[Step 5/6]${NC} Refreshing Terraform state from AWS..."
+echo -e "${YELLOW}[Step 6/7]${NC} Refreshing Terraform state from AWS..."
 echo ""
 
 cd "$(dirname "$0")"
@@ -172,8 +280,8 @@ fi
 
 echo ""
 
-# Step 6: Run Terraform destroy
-echo -e "${YELLOW}[Step 6/6]${NC} Running Terraform destroy..."
+# Step 7: Run Terraform destroy
+echo -e "${YELLOW}[Step 7/7]${NC} Running Terraform destroy..."
 echo ""
 
 # First, check what will be destroyed

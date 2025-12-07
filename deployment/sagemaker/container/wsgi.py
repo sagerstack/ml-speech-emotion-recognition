@@ -48,11 +48,14 @@ def load_model():
         sys.path.insert(0, code_dir)
         logger.info(f"Added {code_dir} to Python path")
 
-    # Import custom classes before unpickling
+    # Import custom classes and inject into __main__ for pickle compatibility
+    # The model was pickled with UltraEnsembleModel in __main__, so we need
+    # to make it available there for unpickling to work
     try:
-        # Try to import UltraEnsembleModel if it exists
         from ultra_ensemble import UltraEnsembleModel
-        logger.info("Imported UltraEnsembleModel from code directory")
+        import __main__
+        __main__.UltraEnsembleModel = UltraEnsembleModel
+        logger.info("Imported and injected UltraEnsembleModel into __main__")
     except ImportError:
         logger.warning("UltraEnsembleModel not found in code directory")
 

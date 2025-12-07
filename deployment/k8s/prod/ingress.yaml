@@ -18,7 +18,15 @@ metadata:
     alb.ingress.kubernetes.io/unhealthy-threshold-count: '3'
     alb.ingress.kubernetes.io/success-codes: '200,302'
     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=300
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    # Enable both HTTP and HTTPS
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    # SSL redirect for microphone access (required for st.audio_input)
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # Certificate ARN - UPDATE THIS with your ACM certificate ARN
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERT_ID
+    # Session stickiness for WebSocket support (required for Streamlit)
+    alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=86400
+    # Enable CORS
     alb.ingress.kubernetes.io/enable-cors: 'true'
     alb.ingress.kubernetes.io/cors-allow-origin: '["*"]'
     alb.ingress.kubernetes.io/cors-allow-methods: '["GET", "POST", "PUT", "DELETE", "OPTIONS"]'
@@ -31,6 +39,23 @@ spec:
   rules:
   - http:
       paths:
+      # Backend API v1 endpoints
+      - path: /v1
+        pathType: Prefix
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+      # Backend API v2 endpoints (for inference)
+      - path: /v2
+        pathType: Prefix
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+      # Legacy /api prefix support
       - path: /api
         pathType: Prefix
         backend:
@@ -38,6 +63,7 @@ spec:
             name: backend
             port:
               number: 8000
+      # Backend health check
       - path: /health
         pathType: Exact
         backend:
@@ -45,6 +71,7 @@ spec:
             name: backend
             port:
               number: 8000
+      # API documentation
       - path: /docs
         pathType: Prefix
         backend:
@@ -52,6 +79,7 @@ spec:
             name: backend
             port:
               number: 8000
+      # Prometheus metrics
       - path: /metrics
         pathType: Exact
         backend:
@@ -59,6 +87,7 @@ spec:
             name: backend
             port:
               number: 9090
+      # Streamlit frontend - must be last (catch-all)
       - path: /
         pathType: Prefix
         backend:
