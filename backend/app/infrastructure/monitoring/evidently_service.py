@@ -44,6 +44,36 @@ except ImportError:  # pragma: no cover - fallback minimal types
         def as_dict(self) -> Dict[str, object]:
             return {"metrics": []}
 
+    class Workspace:  # type: ignore[too-few-public-methods]
+        """Placeholder Workspace for testing without Evidently."""
+
+        @staticmethod
+        def create(path: str) -> "Workspace":
+            """Create a placeholder workspace instance."""
+            return Workspace()
+
+    class Dataset:  # type: ignore[too-few-public-methods]
+        """Placeholder Dataset for testing without Evidently."""
+
+        @staticmethod
+        def from_pandas(df: object, data_definition: object = None) -> "Dataset":
+            """Create a placeholder dataset from pandas DataFrame."""
+            return Dataset()
+
+    class DataDefinition:  # type: ignore[too-few-public-methods]
+        """Placeholder DataDefinition for testing without Evidently."""
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            """Initialize placeholder data definition."""
+            pass
+
+    class MulticlassConfig:  # type: ignore[too-few-public-methods]
+        """Placeholder MulticlassConfig for testing without Evidently."""
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            """Initialize placeholder multiclass config."""
+            pass
+
 from app.domain.monitoring.prediction_buffer import PredictionBuffer, PredictionRecord, get_prediction_buffer
 from app.infrastructure.config import get_settings
 from app.infrastructure.observability.logging import get_logger
