@@ -166,10 +166,10 @@ module "ebs_csi_driver_irsa" {
 # This addon enables dynamic provisioning of EBS volumes for PersistentVolumeClaims
 # Required for monitoring stack (Prometheus, Grafana, Loki, Tempo) persistent storage
 resource "aws_eks_addon" "ebs_csi_driver" {
-  cluster_name             = module.eks.cluster_name
-  addon_name               = "aws-ebs-csi-driver"
-  addon_version            = "v1.53.0-eksbuild.1" # Latest version compatible with EKS 1.31
-  service_account_role_arn = module.ebs_csi_driver_irsa.iam_role_arn
+  cluster_name                = module.eks.cluster_name
+  addon_name                  = "aws-ebs-csi-driver"
+  addon_version               = "v1.53.0-eksbuild.1" # Latest version compatible with EKS 1.31
+  service_account_role_arn    = module.ebs_csi_driver_irsa.iam_role_arn
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 
