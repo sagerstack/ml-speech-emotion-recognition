@@ -68,6 +68,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    root_path=os.getenv("ROOT_PATH", ""),  # Support deployment under a URL prefix
 )
 
 # Setup OpenTelemetry tracing (must be done before adding middleware)

@@ -52,6 +52,8 @@ spec:
           value: "0.0.0.0"
         - name: PORT
           value: "8000"
+        - name: ROOT_PATH
+          value: "/ml-ser"
         - name: AWS_REGION
           valueFrom:
             configMapKeyRef:
@@ -62,6 +64,8 @@ spec:
             secretKeyRef:
               name: backend-secrets
               key: sagemaker-endpoint-name
+        - name: USE_SAGEMAKER
+          value: "true"
         - name: SECRET_KEY
           valueFrom:
             secretKeyRef:

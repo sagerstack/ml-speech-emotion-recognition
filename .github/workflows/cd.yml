@@ -375,18 +375,18 @@ jobs:
 
           # Test backend health endpoint
           echo "Testing backend health endpoint..."
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://${ALB_ADDRESS}/health" || echo "000")
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://${ALB_ADDRESS}/ml-ser/health" || echo "000")
 
           if [ "$HTTP_CODE" = "200" ]; then
             echo "✓ Backend health check passed (HTTP $HTTP_CODE)"
           else
             echo "⚠ Backend health check returned HTTP $HTTP_CODE"
-            echo "Note: Pods may still be starting up. Check manually: http://${ALB_ADDRESS}/health"
+            echo "Note: Pods may still be starting up. Check manually: http://${ALB_ADDRESS}/ml-ser/health"
           fi
 
           # Test frontend
           echo "Testing frontend endpoint..."
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://${ALB_ADDRESS}/" || echo "000")
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://${ALB_ADDRESS}/ml-ser" || echo "000")
 
           if [ "$HTTP_CODE" = "200" ]; then
             echo "✓ Frontend check passed (HTTP $HTTP_CODE)"
@@ -408,9 +408,9 @@ jobs:
           kubectl apply -f deployment/k8s/prod/grafana-dashboards-configmap.yaml
           echo "✓ Grafana dashboards ConfigMap applied"
 
-          # Deploy monitoring ingress (Grafana on /grafana path)
-          kubectl apply -f deployment/k8s/prod/monitoring-ingress.yaml
-          echo "✓ Monitoring ingress applied (Grafana accessible at /grafana)"
+          # NOTE: Monitoring ingress deprecated - Grafana now in main ingress at /ml-ser/grafana
+          # kubectl apply -f deployment/k8s/prod/monitoring-ingress.yaml
+          # echo "✓ Monitoring ingress applied (Grafana accessible at /grafana)"
 
           echo ""
           echo "Waiting for monitoring components to be ready..."
@@ -509,14 +509,14 @@ jobs:
           echo ""
 
           echo "📱 Application URLs:"
-          echo "   Frontend (Streamlit):  http://${ALB_ADDRESS}/"
-          echo "   Backend API:           http://${ALB_ADDRESS}/api"
-          echo "   API Docs (Swagger):    http://${ALB_ADDRESS}/docs"
-          echo "   Health Check:          http://${ALB_ADDRESS}/health"
-          echo "   Metrics:               http://${ALB_ADDRESS}/metrics"
+          echo "   Frontend (Streamlit):  http://${ALB_ADDRESS}/ml-ser"
+          echo "   Backend API:           http://${ALB_ADDRESS}/ml-ser/api"
+          echo "   API Docs (Swagger):    http://${ALB_ADDRESS}/ml-ser/docs"
+          echo "   Health Check:          http://${ALB_ADDRESS}/ml-ser/health"
+          echo "   Metrics:               http://${ALB_ADDRESS}/ml-ser/metrics"
           echo ""
           echo "📊 Monitoring URLs:"
-          echo "   🔍 Grafana (Dashboards): http://${ALB_ADDRESS}/grafana"
+          echo "   🔍 Grafana (Dashboards): http://${ALB_ADDRESS}/ml-ser/grafana"
           echo "      → Default credentials: admin/admin"
           echo "      → Accessible from Streamlit app: Monitoring page → 'Open Grafana' button"
           echo ""

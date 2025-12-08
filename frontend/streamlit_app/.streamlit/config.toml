@@ -6,6 +6,7 @@ address = "0.0.0.0"
 enableCORS = true
 enableXsrfProtection = false
 enableWebsocketCompression = true
+baseUrlPath = "/ml-ser"
 
 # Fix for custom components (streamlit-antd-components)
 # Allow components to be loaded from any origin
