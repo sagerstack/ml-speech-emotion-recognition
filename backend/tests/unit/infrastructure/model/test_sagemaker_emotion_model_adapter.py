@@ -50,8 +50,8 @@ class TestSageMakerEmotionModelAdapter:
 
     @pytest.fixture
     def valid_features(self):
-        """Create valid feature array (180 features)."""
-        return np.random.rand(180).astype(np.float64)
+        """Create valid feature array (210 features for v6 model)."""
+        return np.random.rand(210).astype(np.float64)
 
     @pytest.fixture
     def valid_sagemaker_response(self):
@@ -136,7 +136,7 @@ class TestSageMakerEmotionModelAdapter:
         with pytest.raises(PredictionFailedError) as exc_info:
             adapter.predict_emotion_probabilities(invalid_features)
 
-        assert "Expected 180 features, got 100" in str(exc_info.value)
+        assert "Expected 210 features, got 100" in str(exc_info.value)
 
     def test_predict_with_invalid_shape(self, adapter, mock_boto3_client):
         """Test prediction fails with invalid shape."""
@@ -321,23 +321,26 @@ class TestSageMakerEmotionModelAdapter:
 
     def test_serialize_features(self, adapter, valid_features):
         """Test feature serialization."""
-        features_list = adapter._serialize_features(valid_features)
+        correlation_id = "test-correlation-id"
+        features_list = adapter._serialize_features(valid_features, correlation_id)
 
         assert isinstance(features_list, list)
-        assert len(features_list) == 180
+        assert len(features_list) == 210
         assert all(isinstance(f, float) for f in features_list)
 
     def test_serialize_features_2d(self, adapter, valid_features):
         """Test feature serialization with 2D input."""
+        correlation_id = "test-correlation-id"
         features_2d = valid_features.reshape(1, -1)
-        features_list = adapter._serialize_features(features_2d)
+        features_list = adapter._serialize_features(features_2d, correlation_id)
 
         assert isinstance(features_list, list)
-        assert len(features_list) == 180
+        assert len(features_list) == 210
 
     def test_parse_response(self, adapter, valid_sagemaker_response):
         """Test response parsing."""
-        probabilities = adapter._parse_response(valid_sagemaker_response)
+        correlation_id = "test-correlation-id"
+        probabilities = adapter._parse_response(valid_sagemaker_response, correlation_id)
 
         assert isinstance(probabilities, np.ndarray)
         assert len(probabilities) == 6

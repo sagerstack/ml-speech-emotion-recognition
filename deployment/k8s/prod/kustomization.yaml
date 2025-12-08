@@ -8,7 +8,6 @@ resources:
   - secrets.yaml
   - backend-deployment.yaml
   - streamlit-deployment.yaml
-  - grafana-external-service.yaml
   - ingress.yaml
 
 images:

@@ -1374,6 +1374,10 @@ spec:
           value: '%(protocol)s://%(domain)s/ml-ser/grafana'
         - name: GF_SERVER_SERVE_FROM_SUB_PATH
           value: 'true'
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: 'true'
+        - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+          value: 'Viewer'
         - name: GF_INSTALL_PLUGINS
           value: ''
         - name: GF_PATHS_PROVISIONING

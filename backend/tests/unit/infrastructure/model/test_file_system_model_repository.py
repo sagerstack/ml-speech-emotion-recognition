@@ -39,7 +39,7 @@ class TestFileSystemModelRepository:
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
 
-            # Create models directory structure (for model.pkl)
+            # Create models directory structure (for model.pkl and metadata.json)
             models_path = base_path / "models"
             models_path.mkdir()
 
@@ -50,14 +50,7 @@ class TestFileSystemModelRepository:
             mock_model = SimpleMockModel()
             joblib.dump(mock_model, v4_models_dir / "model.pkl")
 
-            # Create infrastructure directory structure (for metadata.json)
-            infra_path = base_path / "infrastructure"
-            infra_path.mkdir()
-
-            v4_infra_dir = infra_path / "v4"
-            v4_infra_dir.mkdir()
-
-            # Create metadata.json in infrastructure path
+            # Create metadata.json alongside model.pkl (v6+ structure)
             metadata = {
                 "version": "4",
                 "model_name": "Ultra Ensemble Model v4",
@@ -70,8 +63,12 @@ class TestFileSystemModelRepository:
                 "num_classes": 6,
             }
 
-            with open(v4_infra_dir / "metadata.json", "w") as f:
+            with open(v4_models_dir / "metadata.json", "w") as f:
                 json.dump(metadata, f)
+
+            # Create infrastructure directory (kept for compatibility, though not used for metadata anymore)
+            infra_path = base_path / "infrastructure"
+            infra_path.mkdir()
 
             yield models_path, infra_path
 
