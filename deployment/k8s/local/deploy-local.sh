@@ -219,6 +219,12 @@ else
   kubectl apply -f "${SCRIPT_DIR}/backend-deployment.yaml"
   kubectl apply -f "${SCRIPT_DIR}/streamlit-deployment.yaml"
 fi
+
+# Apply Grafana external service if monitoring will be deployed
+if [ "${DEPLOY_MONITORING}" = true ]; then
+  kubectl apply -f "${SCRIPT_DIR}/grafana-external-service.yaml"
+fi
+
 kubectl apply -f "${SCRIPT_DIR}/ingress.yaml"
 
 # Force pod restart to ensure new images are pulled

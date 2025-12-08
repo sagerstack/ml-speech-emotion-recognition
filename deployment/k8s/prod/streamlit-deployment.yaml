@@ -43,6 +43,8 @@ spec:
           value: "8501"
         - name: STREAMLIT_SERVER_ADDRESS
           value: "0.0.0.0"
+        - name: STREAMLIT_SERVER_BASE_URL_PATH
+          value: "/ml-ser"
         - name: ML_APP_BASE_URL
           value: "http://backend:8000"
         - name: GRAFANA_URL
@@ -67,7 +69,7 @@ spec:
             cpu: "500m"
         livenessProbe:
           httpGet:
-            path: /_stcore/health
+            path: /ml-ser/_stcore/health
             port: 8501
           initialDelaySeconds: 40
           periodSeconds: 10
@@ -76,7 +78,7 @@ spec:
           successThreshold: 1
         readinessProbe:
           httpGet:
-            path: /_stcore/health
+            path: /ml-ser/_stcore/health
             port: 8501
           initialDelaySeconds: 10
           periodSeconds: 5
@@ -85,7 +87,7 @@ spec:
           successThreshold: 1
         startupProbe:
           httpGet:
-            path: /_stcore/health
+            path: /ml-ser/_stcore/health
             port: 8501
           initialDelaySeconds: 10
           periodSeconds: 10
