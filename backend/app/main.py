@@ -64,6 +64,7 @@ app = FastAPI(
     title="ML Speech Emotion Recognition API",
     description="Production-ready FastAPI backend for speech emotion recognition using SageMaker deployed models",
     version="1.0.0",
+    openapi_version="3.1.0",  # Explicitly set OpenAPI version for Swagger UI
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",

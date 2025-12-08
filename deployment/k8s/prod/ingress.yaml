@@ -70,8 +70,24 @@ spec:
             name: backend
             port:
               number: 8000
-      # API documentation
+      # API documentation (Swagger UI)
       - path: /docs
+        pathType: Prefix
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+      # OpenAPI schema (required by Swagger UI)
+      - path: /openapi.json
+        pathType: Exact
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+      # ReDoc documentation
+      - path: /redoc
         pathType: Prefix
         backend:
           service:

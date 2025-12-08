@@ -30,8 +30,8 @@ class SageMakerModelRepository(ModelRepository):
     and only model inference is delegated to SageMaker.
 
     Architecture:
-    - Backend API: Feature extraction (audio -> 180 features)
-    - SageMaker: Model inference (180 features -> emotion probabilities)
+    - Backend API: Feature extraction (audio -> 210 features)
+    - SageMaker: Model inference (210 features -> emotion probabilities)
 
     The repository handles:
     - Loading model metadata from SageMaker endpoint tags
@@ -195,8 +195,8 @@ class SageMakerModelRepository(ModelRepository):
                 )
 
             # Extract metadata from tags or use defaults
-            model_type = tags.get("model_type", "UltraEnsembleModel")
-            feature_dimension = int(tags.get("feature_dimension", 180))
+            model_type = tags.get("model_type", "sklearn.pipeline.Pipeline")
+            feature_dimension = int(tags.get("feature_dimension", 210))
             model_name = tags.get("model_name", "SageMaker Emotion Recognition Model")
             sklearn_version = tags.get("sklearn_version", "1.7.2")
             num_classes = int(tags.get("num_classes", 6))

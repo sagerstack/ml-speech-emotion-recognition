@@ -44,6 +44,20 @@ spec:
             name: backend
             port:
               number: 8000
+      - path: /openapi.json
+        pathType: Exact
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+      - path: /redoc(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
       - path: /metrics
         pathType: Exact
         backend:
@@ -79,6 +93,20 @@ spec:
             port:
               number: 8000
       - path: /docs(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+      - path: /openapi.json
+        pathType: Exact
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+      - path: /redoc(/|$)(.*)
         pathType: ImplementationSpecific
         backend:
           service:
