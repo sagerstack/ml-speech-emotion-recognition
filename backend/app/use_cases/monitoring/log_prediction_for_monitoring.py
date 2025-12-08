@@ -24,11 +24,11 @@ class LogPredictionForMonitoringUseCase:
     - Handles errors gracefully without propagating exceptions
     """
 
-    def __init__(self, monitoring_service: EvidentlyService, logger: Any):
+    def __init__(self, monitoring_service: EvidentlyService | None, logger: Any):
         """Initialize LogPredictionForMonitoringUseCase.
 
         Args:
-            monitoring_service: Evidently monitoring service for logging predictions
+            monitoring_service: Evidently monitoring service for logging predictions (None if disabled)
             logger: Structlog logger instance for structured logging
         """
         self.monitoring_service = monitoring_service
@@ -59,8 +59,12 @@ class LogPredictionForMonitoringUseCase:
 
         Returns:
             prediction_id: Unique identifier for this prediction (UUID)
-                          Returns empty string if logging fails
+                          Returns empty string if logging fails or monitoring is disabled
         """
+        # If monitoring is disabled, return empty prediction_id
+        if self.monitoring_service is None:
+            return ""
+
         try:
             # Generate unique prediction ID
             prediction_id = str(uuid.uuid4())

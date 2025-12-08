@@ -1,0 +1,4 @@
+# Compatible with sagemaker-scikit-learn:1.4-2-cpu-py3 container
+# which has sklearn 1.4.2 + numpy 2.x support
+numpy>=2.0.0
+scikit-learn>=1.4.0

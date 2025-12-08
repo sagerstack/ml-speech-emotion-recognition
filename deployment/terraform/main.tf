@@ -186,6 +186,26 @@ resource "aws_eks_addon" "ebs_csi_driver" {
   )
 }
 
+# ==============================================================================
+# SageMaker Module
+# ==============================================================================
+module "sagemaker" {
+  source = "./modules/sagemaker"
+
+  project_name = local.project_name
+  environment  = local.environment
+  aws_region   = var.aws_region
+  common_tags  = local.tags
+
+  # Instance configuration
+  instance_type = var.sagemaker_instance_type
+  min_capacity  = var.sagemaker_min_capacity
+  max_capacity  = var.sagemaker_max_capacity
+
+  # Auto-scaling
+  autoscaling_target_invocations = var.sagemaker_autoscaling_target_invocations
+}
+
 data "tls_certificate" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
@@ -373,12 +393,45 @@ resource "aws_iam_role_policy" "github_actions" {
       {
         Effect : "Allow",
         Action : [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ],
+        Resource : [
+          module.sagemaker.model_storage_bucket_arn,
+          "${module.sagemaker.model_storage_bucket_arn}/*"
+        ]
+      },
+      {
+        Effect : "Allow",
+        Action : [
+          "sagemaker:CreateModel",
+          "sagemaker:CreateEndpointConfig",
+          "sagemaker:CreateEndpoint",
+          "sagemaker:UpdateEndpoint",
+          "sagemaker:DescribeModel",
+          "sagemaker:DescribeEndpointConfig",
+          "sagemaker:DescribeEndpoint",
+          "sagemaker:DeleteModel",
+          "sagemaker:DeleteEndpointConfig",
+          "sagemaker:DeleteEndpoint",
+          "sagemaker:ListTags",
+          "sagemaker:AddTags"
+        ],
+        Resource : "*"
+      },
+      {
+        Effect : "Allow",
+        Action : [
           "iam:PassRole"
         ],
-        Resource : aws_iam_role.github_actions.arn,
+        Resource : [
+          aws_iam_role.github_actions.arn,
+          module.sagemaker.sagemaker_execution_role_arn
+        ],
         Condition : {
           StringEquals : {
-            "iam:PassedToService" : "eks.amazonaws.com"
+            "iam:PassedToService" : ["eks.amazonaws.com", "sagemaker.amazonaws.com"]
           }
         }
       }

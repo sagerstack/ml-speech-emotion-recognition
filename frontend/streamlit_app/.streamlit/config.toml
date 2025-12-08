@@ -1,0 +1,27 @@
+[server]
+# Server configuration for production deployment
+headless = true
+port = 8501
+address = "0.0.0.0"
+enableCORS = true
+enableXsrfProtection = false
+enableWebsocketCompression = true
+
+# Fix for custom components (streamlit-antd-components)
+# Allow components to be loaded from any origin
+allowRunOnSave = false
+runOnSave = false
+
+[browser]
+gatherUsageStats = false
+serverAddress = "0.0.0.0"
+serverPort = 8501
+
+[client]
+# Prevent toolbar from showing in production
+toolbarMode = "minimal"
+showErrorDetails = true
+
+[runner]
+# Faster rerun behavior
+fastReruns = true

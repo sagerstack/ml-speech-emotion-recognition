@@ -34,6 +34,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY frontend/streamlit_app/ .
 
+# Create .streamlit directory and copy config
+RUN mkdir -p /app/.streamlit
+COPY frontend/streamlit_app/.streamlit/config.toml /app/.streamlit/config.toml
+
 # Set correct permissions
 RUN chown -R streamlit:streamlit /app
 

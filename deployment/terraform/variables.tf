@@ -79,3 +79,28 @@ variable "github_main_branch" {
   type        = string
   default     = "main"
 }
+
+# SageMaker Configuration
+variable "sagemaker_instance_type" {
+  description = "SageMaker endpoint instance type"
+  type        = string
+  default     = "ml.t3.medium"
+}
+
+variable "sagemaker_min_capacity" {
+  description = "Minimum number of instances for SageMaker auto-scaling"
+  type        = number
+  default     = 1
+}
+
+variable "sagemaker_max_capacity" {
+  description = "Maximum number of instances for SageMaker auto-scaling"
+  type        = number
+  default     = 3
+}
+
+variable "sagemaker_autoscaling_target_invocations" {
+  description = "Target invocations per instance for SageMaker auto-scaling"
+  type        = number
+  default     = 100
+}

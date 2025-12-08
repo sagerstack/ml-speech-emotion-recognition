@@ -1,7 +1,7 @@
 """Dependency injection container for clean architecture wiring.
 
 This module provides a simple DI container that wires together:
-- Infrastructure implementations (LibrosaAudioProcessor, FileSystemModelRepository)
+- Infrastructure implementations (LibrosaAudioProcessor, FileSystemModelRepository, SageMakerModelRepository)
 - Use cases with their dependencies
 - Domain services and repositories
 
@@ -9,13 +9,20 @@ The container follows clean architecture principles:
 - Domain layer defines interfaces (AudioProcessor, ModelRepository)
 - Infrastructure layer provides implementations
 - Use cases depend on abstractions, not concrete implementations
+
+Environment-based repository selection:
+- USE_SAGEMAKER=false: Uses FileSystemModelRepository (local development)
+- USE_SAGEMAKER=true: Uses SageMakerModelRepository (production deployment)
 """
 
 
 from app.domain.model.repositories.model_repository import ModelRepository
 from app.domain.model.services.audio_processor import AudioProcessor
+from app.infrastructure.config.settings import get_settings
 from app.infrastructure.model.file_system_model_repository import FileSystemModelRepository
 from app.infrastructure.model.librosa_audio_processor import LibrosaAudioProcessor
+from app.infrastructure.model.sagemaker_model_repository import SageMakerModelRepository
+from app.infrastructure.observability.logging import get_logger
 from app.use_cases.model.get_model_info import GetModelInfoUseCase
 from app.use_cases.model.list_models import ListModelsUseCase
 from app.use_cases.model.run_inference import RunInferenceUseCase
@@ -38,8 +45,10 @@ class DIContainer:
 
         Args:
             models_dir: Path to models directory. If None, uses default location.
+                       Only used for FileSystemModelRepository (local mode).
         """
         self._models_dir = models_dir
+        self._logger = get_logger(__name__)
 
         # Singletons - created once and reused
         self._audio_processor: AudioProcessor | None = None
@@ -58,16 +67,51 @@ class DIContainer:
     def get_model_repository(self) -> ModelRepository:
         """Get model repository instance (singleton).
 
+        Environment-based selection:
+        - USE_SAGEMAKER=false: Returns FileSystemModelRepository (local development)
+        - USE_SAGEMAKER=true: Returns SageMakerModelRepository (production)
+
         Returns:
-            FileSystemModelRepository instance
+            ModelRepository implementation based on settings
         """
         if self._model_repository is None:
+            self._model_repository = self._create_model_repository()
+        return self._model_repository
+
+    def _create_model_repository(self) -> ModelRepository:
+        """Create model repository based on environment settings.
+
+        This factory method implements the environment-based strategy pattern
+        for selecting between local and production model repositories.
+
+        Returns:
+            ModelRepository implementation (FileSystemModelRepository or SageMakerModelRepository)
+        """
+        settings = get_settings()
+
+        if settings.use_sagemaker:
+            # Production mode: Use SageMaker endpoint
+            self._logger.info(
+                "Using SageMakerModelRepository (production mode)",
+                endpoint_name=settings.sagemaker_endpoint_name,
+                region=settings.aws_region,
+            )
+
+            return SageMakerModelRepository(
+                endpoint_name=settings.sagemaker_endpoint_name,
+                region=settings.aws_region,
+                timeout_seconds=settings.sagemaker_timeout_seconds,
+                max_retries=settings.sagemaker_max_retries,
+            )
+        else:
+            # Local development mode: Use file system
+            self._logger.info("Using FileSystemModelRepository (local mode)")
+
             if self._models_dir:
-                self._model_repository = FileSystemModelRepository(models_dir=self._models_dir)
+                return FileSystemModelRepository(models_dir=self._models_dir)
             else:
                 # Use default location (backend/models)
-                self._model_repository = FileSystemModelRepository()
-        return self._model_repository
+                return FileSystemModelRepository()
 
     def get_run_inference_use_case(self) -> RunInferenceUseCase:
         """Get run inference use case with dependencies.
@@ -76,7 +120,9 @@ class DIContainer:
             RunInferenceUseCase with wired dependencies
         """
         return RunInferenceUseCase(
-            audio_processor=self.get_audio_processor(), model_repository=self.get_model_repository()
+            audio_processor=self.get_audio_processor(),
+            model_repository=self.get_model_repository(),
+            logger=self._logger,
         )
 
     def get_model_info_use_case(self) -> GetModelInfoUseCase:

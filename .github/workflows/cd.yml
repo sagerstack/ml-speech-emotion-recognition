@@ -1,7 +1,22 @@
-name: Deploy to EKS
+name: Deploy to Production
 
 on:
   workflow_dispatch:
+    inputs:
+      model_version:
+        description: 'Model version to deploy to SageMaker (e.g., v5). Leave empty to skip SageMaker deployment.'
+        required: false
+        type: string
+      skip_sagemaker:
+        description: 'Skip SageMaker deployment (even if model_version is provided)'
+        required: false
+        type: boolean
+        default: false
+      endpoint_name:
+        description: 'SageMaker endpoint name (default: ml-emotion-prod)'
+        required: false
+        type: string
+        default: 'ml-emotion-prod'
 
 env:
   AWS_REGION: us-east-1
@@ -10,10 +25,139 @@ env:
   KUSTOMIZE_DIR: deployment/k8s/prod
   BACKEND_REPO_NAME: ml-speech-emotion-backend
   STREAMLIT_REPO_NAME: ml-speech-emotion-streamlit
+  SAGEMAKER_ENDPOINT_NAME: ${{ inputs.endpoint_name || 'ml-emotion-prod' }}
 
 jobs:
-  deploy:
+  deploy-model-to-sagemaker:
+    name: Deploy Model to SageMaker
     runs-on: ubuntu-latest
+    if: ${{ inputs.model_version != '' && !inputs.skip_sagemaker }}
+    permissions:
+      id-token: write
+      contents: read
+    environment:
+      name: production
+    outputs:
+      sagemaker_endpoint: ${{ steps.deploy.outputs.endpoint_name }}
+      model_version: ${{ inputs.model_version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Set S3 bucket name
+        id: set-bucket
+        run: |
+          # Derive bucket name from project naming convention
+          # Format: ${project_name}-models-${aws_region}
+          MODEL_BUCKET="ml-speech-emotion-models-${AWS_REGION}"
+
+          echo "MODEL_BUCKET=${MODEL_BUCKET}" >> $GITHUB_ENV
+          echo "✓ Using S3 bucket: ${MODEL_BUCKET}"
+
+      - name: Validate SageMaker package exists in S3
+        env:
+          MODEL_VERSION: ${{ inputs.model_version }}
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔍 Validating SageMaker package for $MODEL_VERSION..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+
+          S3_MODEL_URI="s3://$MODEL_BUCKET/sagemaker-models/$MODEL_VERSION/model.tar.gz"
+
+          # Check if SageMaker package exists
+          if ! aws s3 ls "$S3_MODEL_URI" >/dev/null 2>&1; then
+            echo "❌ Error: SageMaker package not found in S3"
+            echo ""
+            echo "Expected location: $S3_MODEL_URI"
+            echo ""
+            echo "Please upload model using:"
+            echo "  ./scripts/upload_model_to_s3.sh $MODEL_VERSION --profile ml-ser-deploy"
+            echo ""
+            echo "The upload script will:"
+            echo "  1. Upload raw model files to raw-models/"
+            echo "  2. Package for SageMaker locally"
+            echo "  3. Upload package to sagemaker-models/"
+            exit 1
+          fi
+
+          PACKAGE_SIZE=$(aws s3 ls "$S3_MODEL_URI" | awk '{print $3}')
+          PACKAGE_SIZE_MB=$((PACKAGE_SIZE / 1024 / 1024))
+
+          echo "✅ SageMaker package found"
+          echo "   Location: $S3_MODEL_URI"
+          echo "   Size: ${PACKAGE_SIZE_MB} MB"
+          echo ""
+
+          # Save for deployment step
+          echo "S3_MODEL_URI=${S3_MODEL_URI}" >> $GITHUB_ENV
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deployment dependencies
+        run: |
+          pip install boto3
+
+      - name: Deploy to SageMaker
+        id: deploy
+        env:
+          MODEL_VERSION: ${{ inputs.model_version }}
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🚀 Deploying model to SageMaker..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          python deployment/sagemaker/scripts/deploy_to_sagemaker.py \
+            --model-version "$MODEL_VERSION" \
+            --endpoint-name "${{ env.SAGEMAKER_ENDPOINT_NAME }}" \
+            --instance-type ml.t2.medium \
+            --s3-uri "$S3_MODEL_URI" \
+            --region "${{ env.AWS_REGION }}" \
+            --execution-role-arn "arn:aws:iam::303440520181:role/ml-speech-emotion-prod-sagemaker-execution" \
+            --timeout 900
+
+          echo ""
+          echo "endpoint_name=${{ env.SAGEMAKER_ENDPOINT_NAME }}" >> $GITHUB_OUTPUT
+
+      - name: Verify SageMaker endpoint
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Verifying SageMaker endpoint..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          aws sagemaker describe-endpoint \
+            --endpoint-name "${{ env.SAGEMAKER_ENDPOINT_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query '{Name:EndpointName, Status:EndpointStatus, InstanceType:ProductionVariants[0].InstanceType, CurrentInstanceCount:ProductionVariants[0].CurrentInstanceCount}' \
+            --output table
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎉 SageMaker Deployment Complete!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "   Endpoint Name: ${{ env.SAGEMAKER_ENDPOINT_NAME }}"
+          echo "   Model Version: ${{ inputs.model_version }}"
+          echo "   Instance Type: ml.t3.medium"
+          echo "   Region: ${{ env.AWS_REGION }}"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: [deploy-model-to-sagemaker]
+    if: ${{ always() }}
     permissions:
       id-token: write
       contents: read
@@ -343,5 +487,24 @@ jobs:
           echo "   • Promtail - Log collection (DaemonSet)"
           echo "   • kube-state-metrics - K8s metrics"
           echo "   • node-exporter - Node metrics (DaemonSet)"
+
+          # Show SageMaker deployment info if model was deployed
+          if [ "${{ needs.deploy-model-to-sagemaker.result }}" = "success" ]; then
+            echo "   • SageMaker Endpoint - ML model inference (${{ needs.deploy-model-to-sagemaker.outputs.model_version }})"
+          fi
+
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          # Display SageMaker deployment details if successful
+          if [ "${{ needs.deploy-model-to-sagemaker.result }}" = "success" ]; then
+            echo ""
+            echo "🤖 SageMaker ML Model:"
+            echo "   Endpoint Name: ${{ needs.deploy-model-to-sagemaker.outputs.sagemaker_endpoint }}"
+            echo "   Model Version: ${{ needs.deploy-model-to-sagemaker.outputs.model_version }}"
+            echo "   Instance Type: ml.t3.medium"
+            echo "   Region: ${{ env.AWS_REGION }}"
+            echo "   Status: InService"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          fi

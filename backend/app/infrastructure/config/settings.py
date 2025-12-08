@@ -32,7 +32,12 @@ class Settings(BaseSettings):
 
     # AWS Configuration (us-east-1 as per user decision)
     aws_region: str = "us-east-1"
-    sagemaker_endpoint_name: str = "speech-emotion-1763484306"
+    sagemaker_endpoint_name: str = "ml-ser-endpoint4"
+
+    # SageMaker Integration Configuration
+    use_sagemaker: bool = False  # Default to local for development
+    sagemaker_timeout_seconds: int = 30
+    sagemaker_max_retries: int = 3
 
     # Security Configuration
     secret_key: str = ""
@@ -58,6 +63,7 @@ class Settings(BaseSettings):
     # Monitoring Configuration
     prometheus_enabled: bool = True
     metrics_port: int = 9090
+    enable_model_monitoring: bool = True  # Enable/disable model monitoring (prediction logging)
     monitoring_reference_path: str | None = None
     monitoring_reports_dir: str = "monitoring_reports"
     monitoring_buffer_max_records: int = 500
@@ -127,6 +133,14 @@ class Settings(BaseSettings):
         if v <= 0:
             raise ValueError("Access token expiry must be positive")
         return v
+
+    def model_post_init(self, __context):
+        """Validate settings after initialization."""
+        # Validate SageMaker configuration
+        if self.use_sagemaker and not self.sagemaker_endpoint_name:
+            raise ValueError(
+                "SAGEMAKER_ENDPOINT_NAME must be set when USE_SAGEMAKER=true"
+            )
 
 
 # Global settings instance
