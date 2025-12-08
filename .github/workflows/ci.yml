@@ -162,7 +162,98 @@ jobs:
           docker push "${STREAMLIT_IMAGE}:${IMAGE_TAG}"
           docker push "${STREAMLIT_IMAGE}:latest"
 
+      - name: Build and push SageMaker container to ECR
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔨 Building SageMaker custom inference container..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          SAGEMAKER_REPO_NAME="ml-speech-emotion-sklearn"
+          SAGEMAKER_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${SAGEMAKER_REPO_NAME}"
+          SKLEARN_VERSION="1.7.2"
+          PYTHON_VERSION="py310"
+          SAGEMAKER_TAG="${SKLEARN_VERSION}-${PYTHON_VERSION}"
+
+          echo "Repository: ${SAGEMAKER_REPO_NAME}"
+          echo "Image: ${SAGEMAKER_IMAGE}:${SAGEMAKER_TAG}"
+          echo ""
+
+          # Check if ECR repository exists, create if not
+          echo "Checking ECR repository..."
+          if ! aws ecr describe-repositories \
+            --repository-names "${SAGEMAKER_REPO_NAME}" \
+            --region "${AWS_REGION}" >/dev/null 2>&1; then
+
+            echo "Creating ECR repository: ${SAGEMAKER_REPO_NAME}"
+            aws ecr create-repository \
+              --repository-name "${SAGEMAKER_REPO_NAME}" \
+              --region "${AWS_REGION}" \
+              --image-scanning-configuration scanOnPush=true \
+              --encryption-configuration encryptionType=AES256
+
+            # Set lifecycle policy to keep only recent images
+            aws ecr put-lifecycle-policy \
+              --repository-name "${SAGEMAKER_REPO_NAME}" \
+              --region "${AWS_REGION}" \
+              --lifecycle-policy-text '{
+                "rules": [
+                  {
+                    "rulePriority": 1,
+                    "description": "Keep last 5 images",
+                    "selection": {
+                      "tagStatus": "any",
+                      "countType": "imageCountMoreThan",
+                      "countNumber": 5
+                    },
+                    "action": {
+                      "type": "expire"
+                    }
+                  }
+                ]
+              }'
+
+            echo "✓ ECR repository created"
+          else
+            echo "✓ ECR repository already exists"
+          fi
+
+          echo ""
+          echo "Building Docker image..."
+          docker build \
+            -f deployment/sagemaker/container/Dockerfile \
+            -t "${SAGEMAKER_IMAGE}:${SAGEMAKER_TAG}" \
+            -t "${SAGEMAKER_IMAGE}:latest" \
+            --load \
+            deployment/sagemaker/container/
+
+          echo "✓ Docker image built successfully"
+          echo ""
+
+          echo "Pushing to ECR..."
+          docker push "${SAGEMAKER_IMAGE}:${SAGEMAKER_TAG}"
+          docker push "${SAGEMAKER_IMAGE}:latest"
+
+          echo "✓ SageMaker container pushed to ECR"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ SageMaker Container Build Complete"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Image URI: ${SAGEMAKER_IMAGE}:${SAGEMAKER_TAG}"
+          echo "Latest URI: ${SAGEMAKER_IMAGE}:latest"
+          echo ""
+
       - name: Output image tags
         run: |
-          echo "Backend image: ${BACKEND_IMAGE}:${IMAGE_TAG}"
-          echo "Streamlit image: ${STREAMLIT_IMAGE}:${IMAGE_TAG}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 All Images Pushed to ECR"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Backend:   ${BACKEND_IMAGE}:${IMAGE_TAG}"
+          echo "Streamlit: ${STREAMLIT_IMAGE}:${IMAGE_TAG}"
+
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          SAGEMAKER_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/ml-speech-emotion-sklearn"
+          echo "SageMaker: ${SAGEMAKER_IMAGE}:1.7.2-py310"
+          echo ""
