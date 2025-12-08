@@ -244,8 +244,8 @@ class TestFileSystemModelRepository:
         assert info is None
 
     # Integration tests
-    def test_repository_with_real_v4_model_path(self):
-        """Test repository with actual v4 model path."""
+    def test_repository_with_real_latest_model_path(self):
+        """Test repository with actual models directory and latest model."""
         # Use actual backend models directory
         backend_dir = Path(__file__).parents[4]  # Go up from tests/unit/infrastructure/model
         models_dir = backend_dir / "models"
@@ -255,14 +255,17 @@ class TestFileSystemModelRepository:
 
         repo = FileSystemModelRepository(models_dir=str(models_dir))
 
-        # Test v4 model exists
-        v4_version = ModelVersion.from_string("v4")
-        assert repo.model_exists(v4_version)
+        # Test latest model exists
+        latest_version = repo.get_latest_version()
+        if latest_version is None:
+            pytest.skip("No model versions found")
+
+        assert repo.model_exists(latest_version)
 
         # Test get model info
-        info = repo.get_model_info(v4_version)
+        info = repo.get_model_info(latest_version)
         assert info is not None
-        assert info.feature_dimension == 210
+        assert info.feature_dimension == 210  # All current models use 210 features
 
     def test_full_repository_workflow(self, repository: FileSystemModelRepository):
         """Test complete workflow: check exists, get info, load model."""

@@ -214,11 +214,14 @@ class SageMakerModelRepository(ModelRepository):
 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
+            error_message = e.response.get("Error", {}).get("Message", str(e))
 
             if error_code in ["ValidationError", "ResourceNotFoundException"]:
                 self.logger.warning(
-                    "SageMaker endpoint not found",
+                    "SageMaker endpoint validation failed",
                     endpoint_name=self.endpoint_name,
+                    error_code=error_code,
+                    error_message=error_message,
                 )
                 return None
 
@@ -226,6 +229,7 @@ class SageMakerModelRepository(ModelRepository):
                 "Failed to get endpoint metadata",
                 endpoint_name=self.endpoint_name,
                 error_code=error_code,
+                error_message=error_message,
             )
             return None
 
