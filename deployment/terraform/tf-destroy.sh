@@ -33,7 +33,7 @@ echo -e "  Namespace:   ${GREEN}${K8S_NAMESPACE}${NC}"
 echo ""
 
 # Step 1: Check if cluster exists and is accessible
-echo -e "${YELLOW}[Step 1/7]${NC} Checking EKS cluster accessibility..."
+echo -e "${YELLOW}[Step 1/8]${NC} Checking EKS cluster accessibility..."
 
 if ! aws eks describe-cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --profile "$AWS_PROFILE" &>/dev/null; then
     echo -e "${YELLOW}⚠️  EKS cluster not found or not accessible${NC}"
@@ -52,7 +52,7 @@ fi
 # Step 2: Delete Kubernetes resources if cluster is accessible
 if [ "$SKIP_K8S_CLEANUP" = false ]; then
     echo ""
-    echo -e "${YELLOW}[Step 2/7]${NC} Deleting Kubernetes resources..."
+    echo -e "${YELLOW}[Step 2/8]${NC} Deleting Kubernetes resources..."
 
     # Check if app namespace exists
     if kubectl get namespace "$K8S_NAMESPACE" &>/dev/null; then
@@ -89,13 +89,13 @@ if [ "$SKIP_K8S_CLEANUP" = false ]; then
     fi
 else
     echo ""
-    echo -e "${YELLOW}[Step 2/7]${NC} Skipping Kubernetes cleanup (cluster not accessible)"
+    echo -e "${YELLOW}[Step 2/8]${NC} Skipping Kubernetes cleanup (cluster not accessible)"
 fi
 
 # Step 3: Wait for AWS Load Balancer Controller to clean up resources
 if [ "$SKIP_K8S_CLEANUP" = false ]; then
     echo ""
-    echo -e "${YELLOW}[Step 3/7]${NC} Waiting for AWS Load Balancer Controller to clean up AWS resources..."
+    echo -e "${YELLOW}[Step 3/8]${NC} Waiting for AWS Load Balancer Controller to clean up AWS resources..."
     echo -e "${YELLOW}   This typically takes 30-60 seconds...${NC}"
 
     for i in {60..1}; do
@@ -106,12 +106,12 @@ if [ "$SKIP_K8S_CLEANUP" = false ]; then
     echo -e "${GREEN}✓${NC} Wait period complete"
 else
     echo ""
-    echo -e "${YELLOW}[Step 3/7]${NC} Skipping wait period (no Kubernetes cleanup performed)"
+    echo -e "${YELLOW}[Step 3/8]${NC} Skipping wait period (no Kubernetes cleanup performed)"
 fi
 
 # Step 4: Clean up SageMaker resources (CRITICAL - these cost money!)
 echo ""
-echo -e "${YELLOW}[Step 4/7]${NC} Cleaning up SageMaker resources..."
+echo -e "${YELLOW}[Step 4/8]${NC} Cleaning up SageMaker resources..."
 
 # Delete SageMaker endpoints (highest cost - runs 24/7)
 echo -e "${YELLOW}   Checking for SageMaker endpoints...${NC}"
@@ -174,7 +174,7 @@ fi
 
 # Step 5: Manual cleanup of orphaned AWS resources
 echo ""
-echo -e "${YELLOW}[Step 5/7]${NC} Checking for orphaned AWS resources..."
+echo -e "${YELLOW}[Step 5/8]${NC} Checking for orphaned AWS resources..."
 
 # Get VPC ID from Terraform state
 VPC_ID=$(cd "$(dirname "$0")" && terraform output -raw vpc_id 2>/dev/null || echo "")
@@ -263,9 +263,87 @@ else
     echo -e "${GREEN}✓${NC} No CloudWatch log groups found"
 fi
 
-# Step 6: Refresh Terraform state to sync with AWS reality
+# Step 6: Empty S3 buckets before Terraform destroy
 echo ""
-echo -e "${YELLOW}[Step 6/7]${NC} Refreshing Terraform state from AWS..."
+echo -e "${YELLOW}[Step 6/8]${NC} Emptying S3 buckets..."
+
+# Get S3 bucket names from Terraform state
+cd "$(dirname "$0")"
+MODEL_BUCKET=$(terraform output -raw model_storage_bucket_name 2>/dev/null || echo "")
+
+if [ -n "$MODEL_BUCKET" ]; then
+    echo -e "${YELLOW}   Found S3 bucket: ${MODEL_BUCKET}${NC}"
+
+    # Check if bucket exists
+    if aws s3 ls "s3://${MODEL_BUCKET}" --region "$AWS_REGION" --profile "$AWS_PROFILE" > /dev/null 2>&1; then
+        echo -e "${YELLOW}   Emptying bucket (including all versions)...${NC}"
+
+        # Create temporary file for deletion manifest
+        TEMP_DELETE_FILE="/tmp/s3_delete_manifest_$$.json"
+
+        # Get all versions and delete markers
+        echo -e "${YELLOW}   → Listing all object versions...${NC}"
+        aws s3api list-object-versions \
+            --bucket "${MODEL_BUCKET}" \
+            --region "$AWS_REGION" \
+            --profile "$AWS_PROFILE" \
+            --output=json \
+            --query='{Objects: [Versions,DeleteMarkers][].{Key:Key,VersionId:VersionId}[]}' > "$TEMP_DELETE_FILE" 2>/dev/null || echo '{"Objects":null}' > "$TEMP_DELETE_FILE"
+
+        # Check if there are objects to delete
+        OBJECT_LIST=$(cat "$TEMP_DELETE_FILE" | grep -c '"Key"' || echo "0")
+
+        if [ "$OBJECT_LIST" -gt "0" ]; then
+            echo -e "${YELLOW}   Found ${OBJECT_LIST} object versions to delete${NC}"
+            echo -e "${YELLOW}   → Deleting all versions and markers...${NC}"
+
+            # Delete all versions and markers
+            aws s3api delete-objects \
+                --bucket "${MODEL_BUCKET}" \
+                --region "$AWS_REGION" \
+                --profile "$AWS_PROFILE" \
+                --delete "file://${TEMP_DELETE_FILE}" 2>&1 | head -20 || true
+
+            echo -e "${GREEN}✓${NC} Object versions deleted"
+        fi
+
+        # Clean up temp file
+        rm -f "$TEMP_DELETE_FILE"
+
+        # Final verification - check if bucket is truly empty
+        echo -e "${YELLOW}   → Verifying bucket is empty...${NC}"
+        REMAINING=$(aws s3api list-object-versions \
+            --bucket "${MODEL_BUCKET}" \
+            --region "$AWS_REGION" \
+            --profile "$AWS_PROFILE" \
+            --query '[Versions,DeleteMarkers][]' \
+            --output text 2>/dev/null | wc -l || echo "0")
+
+        if [ "$REMAINING" -eq "0" ]; then
+            echo -e "${GREEN}✓${NC} S3 bucket is now empty and ready for deletion"
+        else
+            echo -e "${RED}✗${NC} Warning: Bucket still contains ${REMAINING} versioned objects"
+            echo -e "${YELLOW}   Listing remaining objects:${NC}"
+            aws s3api list-object-versions \
+                --bucket "${MODEL_BUCKET}" \
+                --region "$AWS_REGION" \
+                --profile "$AWS_PROFILE" \
+                --query '[Versions[].{Key:Key,VersionId:VersionId},DeleteMarkers[].{Key:Key,VersionId:VersionId}][]' \
+                --output table 2>/dev/null || true
+            echo -e "${YELLOW}   Terraform destroy will likely fail. Consider manual cleanup:${NC}"
+            echo -e "${YELLOW}   aws s3 rb s3://${MODEL_BUCKET} --force --profile ${AWS_PROFILE}${NC}"
+        fi
+    else
+        echo -e "${YELLOW}⚠️  S3 bucket not found or already deleted${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️  Could not retrieve S3 bucket name from Terraform state${NC}"
+    echo -e "${YELLOW}   Skipping S3 bucket cleanup...${NC}"
+fi
+
+# Step 7: Refresh Terraform state to sync with AWS reality
+echo ""
+echo -e "${YELLOW}[Step 7/8]${NC} Refreshing Terraform state from AWS..."
 echo ""
 
 cd "$(dirname "$0")"
@@ -280,8 +358,8 @@ fi
 
 echo ""
 
-# Step 7: Run Terraform destroy
-echo -e "${YELLOW}[Step 7/7]${NC} Running Terraform destroy..."
+# Step 8: Run Terraform destroy
+echo -e "${YELLOW}[Step 8/8]${NC} Running Terraform destroy..."
 echo ""
 
 # First, check what will be destroyed

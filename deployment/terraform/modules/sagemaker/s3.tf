@@ -1,6 +1,7 @@
 # S3 bucket for ML model storage (raw models and SageMaker packages)
 resource "aws_s3_bucket" "model_storage" {
-  bucket = "${var.project_name}-models-${var.aws_region}"
+  bucket        = "${var.project_name}-models-${var.aws_region}"
+  force_destroy = true # Allow deletion even with objects/versions
 
   tags = merge(
     var.common_tags,
