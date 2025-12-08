@@ -44,6 +44,10 @@ spec:
           value: "false"
         - name: FALLBACK_TO_MOCK
           value: "true"
+        - name: STREAMLIT_SERVER_FILE_WATCHER_TYPE
+          value: "none"
+        - name: STREAMLIT_RUNNER_MAGIC_ENABLED
+          value: "false"
         resources:
           requests:
             memory: "512Mi"

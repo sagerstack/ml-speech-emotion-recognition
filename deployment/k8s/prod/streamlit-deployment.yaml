@@ -60,6 +60,10 @@ spec:
           value: "false"
         - name: STREAMLIT_SERVER_ENABLE_WEBSOCKET_COMPRESSION
           value: "true"
+        - name: STREAMLIT_SERVER_FILE_WATCHER_TYPE
+          value: "none"
+        - name: STREAMLIT_RUNNER_MAGIC_ENABLED
+          value: "false"
         resources:
           requests:
             memory: "512Mi"
