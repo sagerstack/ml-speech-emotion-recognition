@@ -408,9 +408,9 @@ jobs:
           kubectl apply -f deployment/k8s/prod/grafana-dashboards-configmap.yaml
           echo "✓ Grafana dashboards ConfigMap applied"
 
-          # NOTE: Monitoring ingress deprecated - Grafana now in main ingress at /ml-ser/grafana
-          # kubectl apply -f deployment/k8s/prod/monitoring-ingress.yaml
-          # echo "✓ Monitoring ingress applied (Grafana accessible at /grafana)"
+          # Deploy monitoring ingress for Grafana access at /ml-ser/grafana
+          kubectl apply -f deployment/k8s/prod/monitoring-ingress.yaml
+          echo "✓ Monitoring ingress applied (Grafana accessible at /ml-ser/grafana)"
 
           echo ""
           echo "Waiting for monitoring components to be ready..."

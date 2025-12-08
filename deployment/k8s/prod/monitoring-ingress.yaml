@@ -11,12 +11,12 @@ metadata:
     kubernetes.io/ingress.class: "alb"
     # Share the same ALB as the application ingress
     alb.ingress.kubernetes.io/group.name: "ml-emotion-prod"
-    alb.ingress.kubernetes.io/group.order: "100"
+    alb.ingress.kubernetes.io/group.order: "5"  # Higher priority than Streamlit catch-all
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
     alb.ingress.kubernetes.io/healthcheck-port: traffic-port
-    alb.ingress.kubernetes.io/healthcheck-path: /grafana/api/health
+    alb.ingress.kubernetes.io/healthcheck-path: /ml-ser/grafana/api/health
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
     alb.ingress.kubernetes.io/healthy-threshold-count: '3'
@@ -31,8 +31,8 @@ spec:
   rules:
   - http:
       paths:
-      # Grafana - Visualization dashboards (configured for /grafana subpath)
-      - path: /grafana
+      # Grafana - Visualization dashboards (configured for /ml-ser/grafana subpath)
+      - path: /ml-ser/grafana
         pathType: Prefix
         backend:
           service:

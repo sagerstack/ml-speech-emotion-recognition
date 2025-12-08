@@ -21,7 +21,8 @@ from api_client import ML_APP_BASE_URL
 logger = logging.getLogger(__name__)
 
 st.set_page_config(
-    page_title="ML-SER",
+    page_title="ML Speech Emotion Recognition",
+    page_icon="🎤",
     layout="wide",
 )
 

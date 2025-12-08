@@ -46,9 +46,9 @@ class TestSageMakerIntegration:
 
     @pytest.fixture
     def valid_features(self):
-        """Create valid feature array (180 features)."""
+        """Create valid feature array (210 features for v6 model)."""
         np.random.seed(42)
-        return np.random.rand(180).astype(np.float64)
+        return np.random.rand(210).astype(np.float64)
 
     @pytest.fixture
     def valid_sagemaker_response(self):

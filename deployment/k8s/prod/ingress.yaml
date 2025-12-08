@@ -102,14 +102,7 @@ spec:
             name: backend
             port:
               number: 9090
-      # Grafana monitoring - uses ExternalName service (see grafana-external-service.yaml)
-      - path: /ml-ser/grafana
-        pathType: Prefix
-        backend:
-          service:
-            name: grafana-external
-            port:
-              number: 3000
+      # Note: Grafana is configured in grafana-ingress.yaml with custom health checks
       # Streamlit frontend - must be last (catch-all for /ml-ser/*)
       - path: /ml-ser
         pathType: Prefix

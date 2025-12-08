@@ -26,3 +26,6 @@ data:
   STREAMLIT_SERVER_PORT: "8501"
   STREAMLIT_SERVER_ADDRESS: "0.0.0.0"
   BACKEND_API_URL: "http://backend:8000"
+  # Monitoring Configuration (use /tmp for read-only filesystem)
+  MONITORING_REPORTS_DIR: "/tmp/monitoring_reports"
+  EVIDENTLY_WORKSPACE_PATH: "/tmp/evidently_workspace"
