@@ -18,7 +18,8 @@ terraform {
 }
 
 provider "aws" {
-  region = var.aws_region
+  region  = var.aws_region
+  profile = "ml-ser-deploy"
 }
 
 data "aws_availability_zones" "available" {
