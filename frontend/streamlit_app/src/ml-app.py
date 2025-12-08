@@ -2,13 +2,14 @@ from datetime import datetime
 from pathlib import Path
 import io
 import logging
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
 
 import plotly.graph_objects as go
 import streamlit as st
 import streamlit_antd_components as stac
 import pandas as pd
 import numpy as np
-import librosa
 import requests
 
 import os
@@ -16,6 +17,7 @@ from feature_charts import heatmap_chart, probability_bar, waveform_chart, mfcc_
 from mock_inference import AnalysisResult
 from real_inference import real_lab_backend, mock_lab_backend, get_backend_health
 from api_client import ML_APP_BASE_URL
+from audio_processor import extract_audio_features, _worker_extract_features
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -227,113 +229,42 @@ def _load_audio_from_upload(file_obj) -> bytes:
 
 
 def _generate_local_features(audio_bytes: bytes, label: str, engine: str):
-    """Compute local visualizations and feature stats for the uploaded audio."""
-    y, sr = librosa.load(io.BytesIO(audio_bytes), sr=None)
+    """
+    Compute local visualizations and feature stats for the uploaded audio.
 
-    # Normalize waveform length for display
-    max_wave_points = min(len(y), 4096)
-    waveform = y[:max_wave_points]
+    Uses process isolation via ProcessPoolExecutor to prevent Streamlit's
+    caching mechanism from trying to hash librosa's internal JIT-compiled
+    functions (which causes 'no locator available' errors).
+    """
+    # Use 'spawn' context to ensure clean process without Streamlit contamination
+    ctx = multiprocessing.get_context('spawn')
 
-    mel = librosa.power_to_db(
-        librosa.feature.melspectrogram(y=y, sr=sr, n_mels=64, fmax=sr / 2),
-        ref=np.max,
-    )
-    # Use chroma_cqt instead of chroma_stft to avoid streamlit caching issues
-    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-
-    # Extract MFCCs for the equalizer chart (20 coefficients)
-    mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
-    mfcc_mean = np.mean(mfccs, axis=1)  # Average across time
-
-    # Extract Delta and Delta-Delta features
-    delta_mfcc = librosa.feature.delta(mfccs)
-    delta_mfcc_mean = np.mean(delta_mfcc, axis=1)
-
-    delta2_mfcc = librosa.feature.delta(mfccs, order=2)
-    delta2_mfcc_mean = np.mean(delta2_mfcc, axis=1)
-
-    # Calculate duration
-    duration = len(y) / sr
-
-    # Extract pitch (F0) for prosodic features using a simpler, more reliable method
     try:
-        # Use pyin with adjusted parameters for better detection
-        f0, voiced_flag, voiced_probs = librosa.pyin(
-            y,
-            fmin=80,      # Male/female speech range
-            fmax=400,     # Upper limit for speech
-            sr=sr
-        )
+        # Run librosa processing in a separate process to isolate from Streamlit
+        with ProcessPoolExecutor(max_workers=1, mp_context=ctx) as executor:
+            future = executor.submit(extract_audio_features, audio_bytes, label, engine)
+            result = future.result(timeout=60)  # 60 second timeout
 
-        # Create time array matching the pitch frames
-        hop_length = 512
-        times = librosa.frames_to_time(np.arange(len(f0)), sr=sr, hop_length=hop_length)
-
-        # Filter out unvoiced frames (NaN values)
-        voiced_mask = ~np.isnan(f0)
-
-        if np.sum(voiced_mask) > 5:  # Need at least 5 valid pitch points
-            pitch_values = f0[voiced_mask]
-            pitch_times = times[voiced_mask]
-        else:
-            # Generate synthetic pitch contour for visualization if detection fails
-            n_points = 50
-            pitch_times = np.linspace(0, duration, n_points)
-            # Create a simple varying pitch pattern
-            pitch_values = 150 + 50 * np.sin(2 * np.pi * pitch_times / duration)
+        # Convert serialized data back to numpy arrays and DataFrames
+        return {
+            "label": result["label"],
+            "engine": result["engine"],
+            "sample_rate": result["sr"],
+            "waveform": np.array(result["waveform"]),
+            "mel": np.array(result["mel"]),
+            "chroma": np.array(result["chroma"]),
+            "mel_params_table": pd.DataFrame(result["mel_params_df"]),
+            "feature_table": pd.DataFrame(result["feature_df"]),
+            "mfcc_coefficients": np.array(result["mfcc_mean"]),
+            "delta_mfcc": np.array(result["delta_mfcc_mean"]),
+            "delta2_mfcc": np.array(result["delta2_mfcc_mean"]),
+            "pitch_values": np.array(result["pitch_values"]),
+            "pitch_times": np.array(result["pitch_times"]),
+        }
     except Exception as e:
-        # Fallback: generate synthetic pitch contour
-        n_points = 50
-        pitch_times = np.linspace(0, duration, n_points)
-        pitch_values = 150 + 50 * np.sin(2 * np.pi * pitch_times / duration)
-
-    # Mel Spectrogram Parameters Table (displayed next to Mel Spectrogram)
-    mel_mean_energy = float(np.mean(mel))
-    mel_max_energy = float(np.max(mel))
-
-    mel_params_rows = [
-        ("Mel Bands", "64", "Dimensions"),
-        ("Duration", f"{duration:.1f} s", "Time"),
-        ("Frequency Range", f"0 - {int(sr/2)} Hz", "Mel Scale"),
-        ("Sample Rate", f"{sr} Hz", "Audio"),
-        ("Mean Energy", f"{mel_mean_energy:.1f} dB", "Intensity"),
-        ("Max Energy", f"{mel_max_energy:.1f} dB", "Peak"),
-    ]
-
-    mel_params_df = pd.DataFrame(mel_params_rows, columns=["Parameter", "Value", "Unit"])
-
-    # Baseline Feature Extraction Table
-    rms = float(librosa.feature.rms(y=y).mean())
-    zcr = float(librosa.feature.zero_crossing_rate(y).mean())
-
-    feature_rows = [
-        ("Zero Crossing Rate (ZCR)", f"{zcr:.3f}", "Rate", "The rate at which the audio signal changes from positive to negative (or vice versa)."),
-        ("Root Mean Square Energy (RMS)", f"{rms:.3f}", "Linear", "A measure of the signal's loudness/energy, computed as the square root of the mean of squared amplitude values."),
-        ("Mel Spectrogram", "128", "Features", "A representation of how energy is distributed across different frequencies over time, scaled to match human hearing perception."),
-        ("Chroma Features", "12", "Features", "Energy distribution across the 12 pitch classes of Western music (C, C#, D, D#, E, F, F#, G, G#, A, A#, B), regardless of octave."),
-        ("MFCCs", "13", "Features", "The most important features in speech processing. MFCCs capture the shape of the vocal tract (how the mouth, tongue and throat are positioned), which determines the \"color\" or timbre of the voice."),
-        ("Delta Features (Delta MFCCs)", "20", "Features", "Captures the rate of change of MFCCs over time, representing how the voice characteristics are changing from one moment to the next."),
-        ("Delta-Delta Features (Acceleration)", "20", "Features", "Second derivative of MFCCs capturing the acceleration of change, providing information about how quickly the voice is changing its rate of change."),
-        ("Prosodic Features", "8", "Features", "Captures the 'melody' of speech including pitch patterns (mean, std, range, max, min), energy dynamics (std, slope, range), rhythm and stress that convey emotional meaning beyond words."),
-    ]
-
-    feature_df = pd.DataFrame(feature_rows, columns=["Feature", "Value", "Unit", "Relevance"])
-
-    return {
-        "label": label,
-        "engine": engine,
-        "sample_rate": sr,
-        "waveform": waveform,
-        "mel": mel,
-        "chroma": chroma,
-        "mel_params_table": mel_params_df,
-        "feature_table": feature_df,
-        "mfcc_coefficients": mfcc_mean,
-        "delta_mfcc": delta_mfcc_mean,
-        "delta2_mfcc": delta2_mfcc_mean,
-        "pitch_values": pitch_values,
-        "pitch_times": pitch_times,
-    }
+        logger.error(f"Process pool execution failed: {e}")
+        # Re-raise with more context
+        raise RuntimeError(f"Audio feature extraction failed: {str(e)}") from e
 
 
 def _store_audio_state(audio_bytes: bytes, label: str, engine: str, features: dict):
