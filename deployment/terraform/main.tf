@@ -839,8 +839,7 @@ resource "aws_iam_policy" "backend_sagemaker" {
           "sagemaker:ListTags"
         ]
         Resource = [
-          "arn:aws:sagemaker:${var.aws_region}:${data.aws_caller_identity.current.account_id}:endpoint/prod-emotion-recognition-endpoint",
-          "arn:aws:sagemaker:${var.aws_region}:${data.aws_caller_identity.current.account_id}:endpoint/prod-emotion-recognition-endpoint/*"
+          "arn:aws:sagemaker:${var.aws_region}:${data.aws_caller_identity.current.account_id}:endpoint/ml-ser-*"
         ]
       }
     ]
