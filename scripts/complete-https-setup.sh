@@ -14,6 +14,9 @@
 
 set -e
 
+# Get the directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 DOMAIN_NAME="${1}"
 
 if [ -z "$DOMAIN_NAME" ]; then
@@ -57,7 +60,7 @@ echo "  Step 1/3: Certificate Setup (ACM + DNS Validation)"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
-./scripts/setup-cloudfront-domain.sh "$DOMAIN_NAME"
+"${SCRIPT_DIR}/setup-cloudfront-domain.sh" "$DOMAIN_NAME" true
 
 if [ $? -ne 0 ]; then
   echo "❌ Certificate setup failed"
@@ -70,7 +73,7 @@ echo "  Step 2/3: CloudFront Distribution Creation"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
-./scripts/create-cloudfront-distribution.sh
+"${SCRIPT_DIR}/create-cloudfront-distribution.sh"
 
 if [ $? -ne 0 ]; then
   echo "❌ CloudFront creation failed"
@@ -83,7 +86,7 @@ echo "  Step 3/3: DNS Configuration (Route 53)"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
-./scripts/setup-dns-to-cloudfront.sh
+"${SCRIPT_DIR}/setup-dns-to-cloudfront.sh"
 
 if [ $? -ne 0 ]; then
   echo "❌ DNS setup failed"
