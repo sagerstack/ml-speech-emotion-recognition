@@ -114,23 +114,41 @@ echo ""
 echo -e "${YELLOW}[Step 4/8]${NC} Cleaning up SageMaker resources..."
 
 # Delete SageMaker endpoints (highest cost - runs 24/7)
-echo -e "${YELLOW}   Checking for SageMaker endpoints...${NC}"
-ENDPOINTS=$(aws sagemaker list-endpoints --region "$AWS_REGION" --query "Endpoints[?contains(EndpointName, 'ml-emotion')].EndpointName" --output text 2>/dev/null || echo "")
+echo -e "${YELLOW}   Checking for ALL SageMaker endpoints...${NC}"
+ENDPOINTS=$(aws sagemaker list-endpoints --region "$AWS_REGION" --profile "$AWS_PROFILE" --query "Endpoints[].EndpointName" --output text 2>&1)
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}   Error listing endpoints: ${ENDPOINTS}${NC}"
+    ENDPOINTS=""
+fi
 
 if [ -n "$ENDPOINTS" ]; then
-    echo -e "${RED}   Found SageMaker endpoints (these cost ~\$36/month each!)${NC}"
+    ENDPOINT_COUNT=$(echo "$ENDPOINTS" | wc -w)
+    echo -e "${RED}   Found ${ENDPOINT_COUNT} SageMaker endpoints (these cost ~\$36/month each!)${NC}"
+    echo -e "${YELLOW}   Endpoints: ${ENDPOINTS}${NC}"
+
     for endpoint in $ENDPOINTS; do
-        echo -e "${YELLOW}   Deleting endpoint: $endpoint${NC}"
-        aws sagemaker delete-endpoint --endpoint-name "$endpoint" --region "$AWS_REGION" 2>/dev/null || true
+        echo -e "${YELLOW}   → Deleting endpoint: $endpoint${NC}"
+        DELETE_OUTPUT=$(aws sagemaker delete-endpoint --endpoint-name "$endpoint" --region "$AWS_REGION" --profile "$AWS_PROFILE" 2>&1)
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}     ✓ Deleted: $endpoint${NC}"
+        else
+            echo -e "${RED}     ✗ Failed to delete $endpoint: ${DELETE_OUTPUT}${NC}"
+        fi
     done
-    echo -e "${GREEN}✓${NC} SageMaker endpoints deleted"
+    echo -e "${GREEN}✓${NC} SageMaker endpoint deletion completed"
 else
     echo -e "${GREEN}✓${NC} No SageMaker endpoints found"
 fi
 
 # Delete SageMaker endpoint configurations
-echo -e "${YELLOW}   Checking for SageMaker endpoint configs...${NC}"
-CONFIGS=$(aws sagemaker list-endpoint-configs --region "$AWS_REGION" --query "EndpointConfigs[?contains(EndpointConfigName, 'ml-emotion')].EndpointConfigName" --output text 2>/dev/null || echo "")
+echo -e "${YELLOW}   Checking for ALL SageMaker endpoint configs...${NC}"
+CONFIGS=$(aws sagemaker list-endpoint-configs --region "$AWS_REGION" --profile "$AWS_PROFILE" --query "EndpointConfigs[].EndpointConfigName" --output text 2>&1)
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}   Error listing endpoint configs: ${CONFIGS}${NC}"
+    CONFIGS=""
+fi
 
 if [ -n "$CONFIGS" ]; then
     # Wait for endpoints to fully delete before removing configs
@@ -139,37 +157,102 @@ if [ -n "$CONFIGS" ]; then
         sleep 30
     fi
 
+    CONFIG_COUNT=$(echo "$CONFIGS" | wc -w)
+    echo -e "${YELLOW}   Found ${CONFIG_COUNT} endpoint configs${NC}"
+
     for config in $CONFIGS; do
-        echo -e "${YELLOW}   Deleting endpoint config: $config${NC}"
-        aws sagemaker delete-endpoint-config --endpoint-config-name "$config" --region "$AWS_REGION" 2>/dev/null || true
+        echo -e "${YELLOW}   → Deleting endpoint config: $config${NC}"
+        DELETE_OUTPUT=$(aws sagemaker delete-endpoint-config --endpoint-config-name "$config" --region "$AWS_REGION" --profile "$AWS_PROFILE" 2>&1)
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}     ✓ Deleted: $config${NC}"
+        else
+            echo -e "${RED}     ✗ Failed to delete $config: ${DELETE_OUTPUT}${NC}"
+        fi
     done
-    echo -e "${GREEN}✓${NC} SageMaker endpoint configs deleted"
+    echo -e "${GREEN}✓${NC} SageMaker endpoint config deletion completed"
 else
     echo -e "${GREEN}✓${NC} No SageMaker endpoint configs found"
 fi
 
 # Delete SageMaker models
-echo -e "${YELLOW}   Checking for SageMaker models...${NC}"
-MODELS=$(aws sagemaker list-models --region "$AWS_REGION" --query "Models[?contains(ModelName, 'ml-emotion')].ModelName" --output text 2>/dev/null || echo "")
+echo -e "${YELLOW}   Checking for ALL SageMaker models...${NC}"
+MODELS=$(aws sagemaker list-models --region "$AWS_REGION" --profile "$AWS_PROFILE" --query "Models[].ModelName" --output text 2>&1)
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}   Error listing models: ${MODELS}${NC}"
+    MODELS=""
+fi
 
 if [ -n "$MODELS" ]; then
+    MODEL_COUNT=$(echo "$MODELS" | wc -w)
+    echo -e "${YELLOW}   Found ${MODEL_COUNT} models${NC}"
+
     for model in $MODELS; do
-        echo -e "${YELLOW}   Deleting model: $model${NC}"
-        aws sagemaker delete-model --model-name "$model" --region "$AWS_REGION" 2>/dev/null || true
+        echo -e "${YELLOW}   → Deleting model: $model${NC}"
+        DELETE_OUTPUT=$(aws sagemaker delete-model --model-name "$model" --region "$AWS_REGION" --profile "$AWS_PROFILE" 2>&1)
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}     ✓ Deleted: $model${NC}"
+        else
+            echo -e "${RED}     ✗ Failed to delete $model: ${DELETE_OUTPUT}${NC}"
+        fi
     done
-    echo -e "${GREEN}✓${NC} SageMaker models deleted"
+    echo -e "${GREEN}✓${NC} SageMaker model deletion completed"
 else
     echo -e "${GREEN}✓${NC} No SageMaker models found"
 fi
 
 # Delete SageMaker custom container ECR repository
 echo -e "${YELLOW}   Checking for SageMaker ECR repository...${NC}"
-if aws ecr describe-repositories --repository-names "ml-speech-emotion-sklearn" --region "$AWS_REGION" > /dev/null 2>&1; then
-    echo -e "${YELLOW}   Deleting ECR repository: ml-speech-emotion-sklearn${NC}"
-    aws ecr delete-repository --repository-name "ml-speech-emotion-sklearn" --region "$AWS_REGION" --force 2>/dev/null || true
-    echo -e "${GREEN}✓${NC} SageMaker ECR repository deleted"
+if aws ecr describe-repositories --repository-names "ml-speech-emotion-sklearn" --region "$AWS_REGION" --profile "$AWS_PROFILE" > /dev/null 2>&1; then
+    echo -e "${YELLOW}   → Deleting ECR repository: ml-speech-emotion-sklearn${NC}"
+    DELETE_OUTPUT=$(aws ecr delete-repository --repository-name "ml-speech-emotion-sklearn" --region "$AWS_REGION" --profile "$AWS_PROFILE" --force 2>&1)
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✓${NC} SageMaker ECR repository deleted"
+    else
+        echo -e "${RED}✗${NC} Failed to delete ECR repository: ${DELETE_OUTPUT}"
+    fi
 else
     echo -e "${GREEN}✓${NC} No SageMaker ECR repository found"
+fi
+
+# Delete Launch Templates (created by EKS Auto Scaling Groups)
+echo -e "${YELLOW}   Checking for Launch Templates...${NC}"
+LAUNCH_TEMPLATES=$(aws ec2 describe-launch-templates --region "$AWS_REGION" --profile "$AWS_PROFILE" \
+    --query "LaunchTemplates[?contains(LaunchTemplateName, 'eks-') || contains(LaunchTemplateName, 'default-') || contains(LaunchTemplateName, 'ml-speech-emotion')].LaunchTemplateId" \
+    --output text 2>&1)
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}   Error listing launch templates: ${LAUNCH_TEMPLATES}${NC}"
+    LAUNCH_TEMPLATES=""
+fi
+
+if [ -n "$LAUNCH_TEMPLATES" ]; then
+    LT_COUNT=$(echo "$LAUNCH_TEMPLATES" | wc -w)
+    echo -e "${YELLOW}   Found ${LT_COUNT} launch templates${NC}"
+
+    for lt_id in $LAUNCH_TEMPLATES; do
+        # Get template name for display
+        LT_NAME=$(aws ec2 describe-launch-templates --region "$AWS_REGION" --profile "$AWS_PROFILE" \
+            --launch-template-ids "$lt_id" \
+            --query "LaunchTemplates[0].LaunchTemplateName" \
+            --output text 2>/dev/null || echo "unknown")
+
+        echo -e "${YELLOW}   → Deleting launch template: $LT_NAME ($lt_id)${NC}"
+        DELETE_OUTPUT=$(aws ec2 delete-launch-template --launch-template-id "$lt_id" --region "$AWS_REGION" --profile "$AWS_PROFILE" 2>&1)
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}     ✓ Deleted: $LT_NAME${NC}"
+        else
+            # Check if it's because template is in use (expected during ASG deletion)
+            if echo "$DELETE_OUTPUT" | grep -q "in use"; then
+                echo -e "${YELLOW}     ⚠ Template in use (will be deleted by ASG): $LT_NAME${NC}"
+            else
+                echo -e "${RED}     ✗ Failed to delete $LT_NAME: ${DELETE_OUTPUT}${NC}"
+            fi
+        fi
+    done
+    echo -e "${GREEN}✓${NC} Launch template cleanup completed"
+else
+    echo -e "${GREEN}✓${NC} No launch templates found"
 fi
 
 # Step 5: Manual cleanup of orphaned AWS resources

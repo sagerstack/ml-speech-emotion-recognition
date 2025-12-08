@@ -1,12 +1,35 @@
 import streamlit as st
+import os
 from requests.exceptions import RequestException
 
 from api_client import get_api_client
 
 
 def render_monitoring() -> None:
-    st.title("🔍 Evidently Monitoring")
-    st.caption("Review backend-side monitoring status and open the Evidently dashboard.")
+    st.title("🔍 Monitoring Dashboard")
+    st.caption("Review ML model monitoring, infrastructure metrics, and system health.")
+
+    # Infrastructure Monitoring Section
+    st.subheader("📊 Infrastructure Monitoring")
+
+    # Get Grafana URL from environment or use relative path
+    grafana_url = os.getenv("GRAFANA_URL", "/grafana")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**Grafana Dashboards**")
+        st.caption("View real-time metrics, logs, and traces for the application infrastructure.")
+        st.link_button("🔍 Open Grafana", grafana_url, type="primary", use_container_width=True)
+
+    with col2:
+        st.markdown("**What's in Grafana?**")
+        st.caption("• FastAPI performance metrics\n• Kubernetes cluster health\n• Container resource usage\n• Request/response latency\n• Error rates and logs")
+
+    st.divider()
+
+    # ML Model Monitoring Section
+    st.subheader("🤖 ML Model Monitoring (Evidently)")
+    st.caption("Review model performance, data drift, and prediction quality.")
 
     client = get_api_client()
 

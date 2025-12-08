@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: monitoring-ingress
+  namespace: monitoring
+  labels:
+    app: ml-speech-emotion-recognition
+    environment: production
+    component: monitoring
+  annotations:
+    kubernetes.io/ingress.class: "alb"
+    # Share the same ALB as the application ingress
+    alb.ingress.kubernetes.io/group.name: "ml-emotion-prod"
+    alb.ingress.kubernetes.io/group.order: "100"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+    alb.ingress.kubernetes.io/healthcheck-path: /grafana/api/health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
+    alb.ingress.kubernetes.io/healthy-threshold-count: '3'
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: '3'
+    alb.ingress.kubernetes.io/success-codes: '200'
+    # Enable CORS
+    alb.ingress.kubernetes.io/enable-cors: 'true'
+    alb.ingress.kubernetes.io/cors-allow-origin: '["*"]'
+    alb.ingress.kubernetes.io/cors-allow-methods: '["GET", "POST", "PUT", "DELETE", "OPTIONS"]'
+    alb.ingress.kubernetes.io/cors-allow-headers: '["DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"]'
+spec:
+  rules:
+  - http:
+      paths:
+      # Grafana - Visualization dashboards (configured for /grafana subpath)
+      - path: /grafana
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 3000

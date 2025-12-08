@@ -20,22 +20,23 @@ from app.infrastructure.observability.logging import get_logger
 class FileSystemModelRepository(ModelRepository):
     """File system-based implementation of ModelRepository.
 
-    This implementation loads models from local file system and metadata from infrastructure:
+    This implementation loads models and metadata from the local file system:
 
-    models/                        # Model pickle files
+    models/                        # Model directory
       v4/
-        model.pkl
+        model.pkl                  # Trained model
+        metadata.json              # Model metadata
       v5/
         model.pkl
-      ...
-
-    app/infrastructure/model/      # Metadata and feature extractors
-      v4/
         metadata.json
-        feature_extractor.py
-      v5/
+        inference.py               # SageMaker inference handler
+        requirements.txt           # Model dependencies
+        ultra_ensemble.py          # Custom model classes (if needed)
+      v6/
+        model.pkl
         metadata.json
-        feature_extractor.py
+        inference.py
+        requirements.txt
       ...
 
     The implementation follows clean architecture principles:
@@ -43,6 +44,7 @@ class FileSystemModelRepository(ModelRepository):
     - Implements infrastructure concerns (file system access, joblib loading)
     - Handles error translation from infrastructure to domain exceptions
     - Caches loaded models for performance
+    - Co-locates models and metadata for easy deployment packaging
     """
 
     def __init__(self, models_dir: str = None, infrastructure_dir: str = None):
@@ -370,7 +372,8 @@ class FileSystemModelRepository(ModelRepository):
     def _get_metadata_path(self, version: ModelVersion) -> Path:
         """Get the metadata.json file path for a model version.
 
-        Metadata is stored in the infrastructure/model directory following clean architecture.
+        Metadata is stored alongside the model.pkl file in the models directory.
+        This allows models and their metadata to be packaged together for deployment.
 
         Args:
             version: Model version
@@ -378,5 +381,4 @@ class FileSystemModelRepository(ModelRepository):
         Returns:
             Path to metadata.json file
         """
-        version_str = str(version)
-        return self.infrastructure_dir / version_str / "metadata.json"
+        return self._get_model_dir(version) / "metadata.json"
