@@ -28,7 +28,3 @@ serverPort = 8501
 # Prevent toolbar from showing in production
 toolbarMode = "minimal"
 showErrorDetails = true
-
-[runner]
-# Faster rerun behavior
-fastReruns = true
