@@ -1,4 +1,4 @@
-# S3 bucket for ML model storage (raw models and SageMaker packages)
+# S3 bucket for ML model storage (SageMaker packages)
 resource "aws_s3_bucket" "model_storage" {
   bucket        = "${var.project_name}-models-${var.aws_region}"
   force_destroy = true # Allow deletion even with objects/versions
@@ -7,7 +7,7 @@ resource "aws_s3_bucket" "model_storage" {
     var.common_tags,
     {
       Name    = "ML Model Storage"
-      Purpose = "raw-models-and-sagemaker-packages"
+      Purpose = "sagemaker-packages"
     }
   )
 }

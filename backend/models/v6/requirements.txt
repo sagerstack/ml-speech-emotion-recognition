@@ -1,0 +1,5 @@
+# V6 model trained with sklearn 1.7.2
+# For SageMaker deployment, use sagemaker-scikit-learn:1.4-2-cpu-py3 container
+# or custom container with sklearn 1.7.2
+numpy>=2.0.0
+scikit-learn>=1.4.0

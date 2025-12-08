@@ -126,6 +126,37 @@ echo ""
 cat cloudfront-setup-config.txt
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  🔄 Enable Automatic Cache Invalidation (Important!)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Extract CloudFront Distribution ID from config
+if [ -f "cloudfront-setup-config.txt" ]; then
+  DISTRIBUTION_ID=$(grep "DISTRIBUTION_ID=" cloudfront-setup-config.txt | cut -d'"' -f2)
+
+  if [ -n "$DISTRIBUTION_ID" ]; then
+    echo "To ensure new deployments are served immediately (not cached):"
+    echo ""
+    echo "1. Copy your CloudFront Distribution ID:"
+    echo "   📋 $DISTRIBUTION_ID"
+    echo ""
+    echo "2. Add it to GitHub Actions:"
+    echo "   → Go to: https://github.com/<your-org>/<your-repo>/settings/variables/actions"
+    echo "   → Click: 'New repository variable'"
+    echo "   → Name: CLOUDFRONT_DISTRIBUTION_ID"
+    echo "   → Value: $DISTRIBUTION_ID"
+    echo "   → Click: 'Add variable'"
+    echo ""
+    echo "3. Future CD deployments will automatically invalidate CloudFront cache"
+    echo "   → No stale content"
+    echo "   → Users see latest version immediately"
+    echo ""
+    echo "Without this, CloudFront may serve old cached versions for hours!"
+  fi
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "⏰ DNS propagation may take 5-15 minutes globally"
 echo ""

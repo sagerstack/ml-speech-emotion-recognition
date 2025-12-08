@@ -83,12 +83,6 @@ if [ ! -f "$MODEL_DIR/metadata.json" ]; then
 fi
 echo -e "${GREEN}  ✓ Found metadata.json${NC}"
 
-if [ ! -f "$MODEL_DIR/ultra_ensemble.py" ]; then
-  echo -e "${RED}❌ Error: UltraEnsembleModel class not found at $MODEL_DIR/ultra_ensemble.py${NC}"
-  exit 1
-fi
-echo -e "${GREEN}  ✓ Found ultra_ensemble.py${NC}"
-
 if [ ! -f "$MODEL_DIR/inference.py" ]; then
   echo -e "${RED}❌ Error: Inference handler not found at $MODEL_DIR/inference.py${NC}"
   exit 1
@@ -101,88 +95,12 @@ if [ ! -f "$MODEL_DIR/requirements.txt" ]; then
 fi
 echo -e "${GREEN}  ✓ Found requirements.txt${NC}"
 
-# Upload files to S3
-echo ""
-echo -e "${BLUE}📦 Uploading model $MODEL_VERSION to S3...${NC}"
-
-# Upload model.pkl (large file)
-echo -e "${YELLOW}  → Uploading model.pkl (this may take a few minutes)...${NC}"
-aws s3 cp "$MODEL_DIR/model.pkl" \
-  "s3://$S3_BUCKET/raw-models/$MODEL_VERSION/model.pkl" \
-  --profile "$AWS_PROFILE" \
-  --no-progress
-
-echo -e "${GREEN}  ✓ model.pkl uploaded${NC}"
-
-# Upload metadata.json
-echo -e "${YELLOW}  → Uploading metadata.json...${NC}"
-aws s3 cp "$MODEL_DIR/metadata.json" \
-  "s3://$S3_BUCKET/raw-models/$MODEL_VERSION/metadata.json" \
-  --profile "$AWS_PROFILE"
-
-echo -e "${GREEN}  ✓ metadata.json uploaded${NC}"
-
-# Upload ultra_ensemble.py (CRITICAL for unpickling model.pkl)
-echo -e "${YELLOW}  → Uploading ultra_ensemble.py...${NC}"
-aws s3 cp "$MODEL_DIR/ultra_ensemble.py" \
-  "s3://$S3_BUCKET/raw-models/$MODEL_VERSION/ultra_ensemble.py" \
-  --profile "$AWS_PROFILE"
-
-echo -e "${GREEN}  ✓ ultra_ensemble.py uploaded${NC}"
-
-# Upload inference.py (SageMaker inference handler)
-echo -e "${YELLOW}  → Uploading inference.py...${NC}"
-aws s3 cp "$MODEL_DIR/inference.py" \
-  "s3://$S3_BUCKET/raw-models/$MODEL_VERSION/inference.py" \
-  --profile "$AWS_PROFILE"
-
-echo -e "${GREEN}  ✓ inference.py uploaded${NC}"
-
-# Upload requirements.txt (Python dependencies)
-echo -e "${YELLOW}  → Uploading requirements.txt...${NC}"
-aws s3 cp "$MODEL_DIR/requirements.txt" \
-  "s3://$S3_BUCKET/raw-models/$MODEL_VERSION/requirements.txt" \
-  --profile "$AWS_PROFILE"
-
-echo -e "${GREEN}  ✓ requirements.txt uploaded${NC}"
-
-# Create and upload manifest
-echo -e "${YELLOW}  → Creating upload manifest...${NC}"
-MODEL_SIZE=$(stat -f%z "$MODEL_DIR/model.pkl" 2>/dev/null || stat -c%s "$MODEL_DIR/model.pkl")
-GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo 'unknown')
-GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')
-
-cat > /tmp/manifest.json <<EOF
-{
-  "model_version": "$MODEL_VERSION",
-  "uploaded_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "uploaded_by": "$(whoami)@$(hostname)",
-  "git_commit": "$GIT_COMMIT",
-  "git_branch": "$GIT_BRANCH",
-  "model_size_bytes": $MODEL_SIZE,
-  "s3_bucket": "$S3_BUCKET",
-  "s3_prefix": "raw-models/$MODEL_VERSION/"
-}
-EOF
-
-aws s3 cp /tmp/manifest.json \
-  "s3://$S3_BUCKET/raw-models/$MODEL_VERSION/manifest.json" \
-  --profile "$AWS_PROFILE"
-
-echo -e "${GREEN}  ✓ manifest.json uploaded${NC}"
-rm /tmp/manifest.json
-
-# Success message for raw models
-echo ""
-echo -e "${GREEN}✅ Raw model files uploaded successfully!${NC}"
-echo -e "${BLUE}   S3 URI: s3://$S3_BUCKET/raw-models/$MODEL_VERSION/${NC}"
-
 # ============================================================================
-# Package for SageMaker
+# Package and Upload for SageMaker
 # ============================================================================
 
 echo ""
-echo -e "${BLUE}📦 Packaging model for SageMaker deployment...${NC}"
+echo -e "${BLUE}📦 Packaging model $MODEL_VERSION for SageMaker deployment...${NC}"
 echo ""
 
 # Create temporary packaging directory
@@ -197,7 +115,6 @@ cp "$MODEL_DIR/model.pkl" "$TEMP_PACKAGE_DIR/"
 cp "$MODEL_DIR/metadata.json" "$TEMP_PACKAGE_DIR/"
 
 # Code directory
-cp "$MODEL_DIR/ultra_ensemble.py" "$TEMP_PACKAGE_DIR/code/"
 cp "$MODEL_DIR/inference.py" "$TEMP_PACKAGE_DIR/code/"
 cp "$MODEL_DIR/requirements.txt" "$TEMP_PACKAGE_DIR/code/"
 
@@ -229,11 +146,8 @@ rm model.tar.gz
 # Final success message
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}✅ Model $MODEL_VERSION uploaded and packaged successfully!${NC}"
+echo -e "${GREEN}✅ Model $MODEL_VERSION packaged and uploaded successfully!${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo -e "${BLUE}📁 Raw model files:${NC}"
-echo "   s3://$S3_BUCKET/raw-models/$MODEL_VERSION/"
 echo ""
 echo -e "${BLUE}📦 SageMaker package:${NC}"
 echo "   s3://$S3_BUCKET/sagemaker-models/$MODEL_VERSION/model.tar.gz"

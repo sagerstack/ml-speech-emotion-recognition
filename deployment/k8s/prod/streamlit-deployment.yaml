@@ -45,6 +45,8 @@ spec:
           value: "0.0.0.0"
         - name: ML_APP_BASE_URL
           value: "http://backend:8000"
+        - name: GRAFANA_URL
+          value: "/grafana"
         - name: LOG_LEVEL
           valueFrom:
             configMapKeyRef:

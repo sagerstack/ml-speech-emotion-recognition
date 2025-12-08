@@ -3,20 +3,21 @@ name: Deploy to Production
 on:
   workflow_dispatch:
     inputs:
-      model_version:
-        description: 'Model version to deploy to SageMaker (e.g., v5). Leave empty to skip SageMaker deployment.'
-        required: false
-        type: string
-      skip_sagemaker:
-        description: 'Skip SageMaker deployment (even if model_version is provided)'
-        required: false
+      deploy_sagemaker:
+        description: '📦 Deploy to SageMaker'
+        required: true
         type: boolean
-        default: false
-      endpoint_name:
-        description: 'SageMaker endpoint name (default: ml-emotion-prod)'
+        default: true
+      deploy_eks:
+        description: '🚀 Deploy to EKS'
+        required: true
+        type: boolean
+        default: true
+      model_version:
+        description: 'Model version (e.g., v5) - required if deploying SageMaker'
         required: false
         type: string
-        default: 'ml-emotion-prod'
+        default: 'v5'
 
 env:
   AWS_REGION: us-east-1
@@ -25,31 +26,90 @@ env:
   KUSTOMIZE_DIR: deployment/k8s/prod
   BACKEND_REPO_NAME: ml-speech-emotion-backend
   STREAMLIT_REPO_NAME: ml-speech-emotion-streamlit
-  SAGEMAKER_ENDPOINT_NAME: ${{ inputs.endpoint_name || 'ml-emotion-prod' }}
+  SAGEMAKER_ENDPOINT_BASE_NAME: ml-ser
 
 jobs:
   deploy-model-to-sagemaker:
     name: Deploy Model to SageMaker
     runs-on: ubuntu-latest
-    if: ${{ inputs.model_version != '' && !inputs.skip_sagemaker }}
+    if: ${{ inputs.deploy_sagemaker }}
     permissions:
       id-token: write
       contents: read
     environment:
       name: production
     outputs:
-      sagemaker_endpoint: ${{ steps.deploy.outputs.endpoint_name }}
+      sagemaker_endpoint: ${{ steps.set-endpoint-name.outputs.endpoint_name }}
       model_version: ${{ inputs.model_version }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate inputs
+        run: |
+          if [ -z "${{ inputs.model_version }}" ]; then
+            echo "❌ Error: model_version is required when deploying to SageMaker"
+            echo ""
+            echo "Please provide a model version (e.g., v5) in the workflow inputs."
+            exit 1
+          fi
+          echo "✓ Model version: ${{ inputs.model_version }}"
+
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Determine SageMaker endpoint name with auto-versioning
+        id: set-endpoint-name
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔢 Auto-versioning SageMaker Endpoint"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Base name: ${{ env.SAGEMAKER_ENDPOINT_BASE_NAME }}"
+          echo ""
+
+          # List all endpoints matching the base name pattern
+          EXISTING_ENDPOINTS=$(aws sagemaker list-endpoints \
+            --name-contains "${{ env.SAGEMAKER_ENDPOINT_BASE_NAME }}-v" \
+            --query 'Endpoints[*].EndpointName' \
+            --output text 2>/dev/null || echo "")
+
+          # Find the highest version number
+          MAX_VERSION=0
+          if [ -n "$EXISTING_ENDPOINTS" ]; then
+            echo "Found existing endpoints:"
+            for endpoint in $EXISTING_ENDPOINTS; do
+              echo "  • $endpoint"
+              # Extract version number (e.g., ml-ser-v3 → 3)
+              if [[ $endpoint =~ -v([0-9]+)$ ]]; then
+                VERSION=${BASH_REMATCH[1]}
+                if [ $VERSION -gt $MAX_VERSION ]; then
+                  MAX_VERSION=$VERSION
+                fi
+              fi
+            done
+            echo ""
+            echo "Highest existing version: v${MAX_VERSION}"
+          else
+            echo "No existing endpoints found (this will be the first deployment)"
+          fi
+
+          # Increment version
+          NEW_VERSION=$((MAX_VERSION + 1))
+          ENDPOINT_NAME="${{ env.SAGEMAKER_ENDPOINT_BASE_NAME }}-v${NEW_VERSION}"
+
+          echo ""
+          echo "✅ New endpoint name: $ENDPOINT_NAME"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          # Export for other steps
+          echo "endpoint_name=${ENDPOINT_NAME}" >> $GITHUB_OUTPUT
+          echo "SAGEMAKER_ENDPOINT_NAME=${ENDPOINT_NAME}" >> $GITHUB_ENV
 
       - name: Set S3 bucket name
         id: set-bucket
@@ -81,10 +141,7 @@ jobs:
             echo "Please upload model using:"
             echo "  ./scripts/upload_model_to_s3.sh $MODEL_VERSION --profile ml-ser-deploy"
             echo ""
-            echo "The upload script will:"
-            echo "  1. Upload raw model files to raw-models/"
-            echo "  2. Package for SageMaker locally"
-            echo "  3. Upload package to sagemaker-models/"
+            echo "The upload script will package the model and upload to sagemaker-models/"
             exit 1
           fi
 
@@ -157,7 +214,7 @@ jobs:
     name: Deploy to EKS
     runs-on: ubuntu-latest
     needs: [deploy-model-to-sagemaker]
-    if: ${{ always() }}
+    if: ${{ always() && inputs.deploy_eks }}
     permissions:
       id-token: write
       contents: read
@@ -351,6 +408,10 @@ jobs:
           kubectl apply -f deployment/k8s/prod/grafana-dashboards-configmap.yaml
           echo "✓ Grafana dashboards ConfigMap applied"
 
+          # Deploy monitoring ingress (Grafana on /grafana path)
+          kubectl apply -f deployment/k8s/prod/monitoring-ingress.yaml
+          echo "✓ Monitoring ingress applied (Grafana accessible at /grafana)"
+
           echo ""
           echo "Waiting for monitoring components to be ready..."
 
@@ -454,14 +515,18 @@ jobs:
           echo "   Health Check:          http://${ALB_ADDRESS}/health"
           echo "   Metrics:               http://${ALB_ADDRESS}/metrics"
           echo ""
+          echo "📊 Monitoring URLs:"
+          echo "   🔍 Grafana (Dashboards): http://${ALB_ADDRESS}/grafana"
+          echo "      → Default credentials: admin/admin"
+          echo "      → Accessible from Streamlit app: Monitoring page → 'Open Grafana' button"
+          echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
-          echo "📊 Monitoring URLs (use kubectl port-forward):"
+          echo "📊 Advanced Monitoring (use kubectl port-forward if needed):"
           echo ""
-          echo "   🔍 Grafana (Dashboards):"
+          echo "   🔍 Grafana (Direct Access):"
           echo "      kubectl port-forward -n monitoring svc/grafana 3000:3000"
           echo "      → http://localhost:3000"
-          echo "      → Default credentials: admin/admin"
           echo ""
           echo "   📈 Prometheus (Metrics):"
           echo "      kubectl port-forward -n monitoring svc/prometheus 9090:9090"
@@ -479,9 +544,9 @@ jobs:
           echo ""
           echo "✅ Full Stack Deployed:"
           echo "   • Backend (FastAPI) - 2 replicas"
-          echo "   • Frontend (Streamlit) - 2 replicas"
+          echo "   • Frontend (Streamlit) - 2 replicas (with Grafana link)"
           echo "   • Prometheus - Metrics collection"
-          echo "   • Grafana - Visualization dashboards"
+          echo "   • Grafana - Visualization dashboards (public at /grafana)"
           echo "   • Loki - Log aggregation"
           echo "   • Tempo - Distributed tracing"
           echo "   • Promtail - Log collection (DaemonSet)"
@@ -508,3 +573,65 @@ jobs:
             echo ""
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           fi
+
+          echo ""
+          echo "🌐 HTTPS Setup (Optional Next Step):"
+          echo ""
+          echo "To enable custom domain with HTTPS:"
+          echo "   1. Run: ./scripts/complete-https-setup.sh sagerstack.com"
+          echo ""
+          echo "After HTTPS setup, URLs will be:"
+          echo "   • Frontend:  https://sagerstack.com/"
+          echo "   • API Docs:  https://sagerstack.com/docs"
+          echo "   • Grafana:   https://sagerstack.com/grafana"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Invalidate CloudFront cache
+        if: vars.CLOUDFRONT_DISTRIBUTION_ID != ''
+        run: |
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔄 CloudFront Cache Invalidation"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Distribution ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}"
+          echo "Invalidating all paths to serve fresh content..."
+          echo ""
+
+          INVALIDATION_OUTPUT=$(aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*" \
+            --query 'Invalidation.{Id:Id,Status:Status,CreateTime:CreateTime}' \
+            --output json)
+
+          INVALIDATION_ID=$(echo "$INVALIDATION_OUTPUT" | jq -r '.Id')
+          INVALIDATION_STATUS=$(echo "$INVALIDATION_OUTPUT" | jq -r '.Status')
+
+          echo "✅ Cache invalidation created:"
+          echo "   Invalidation ID: $INVALIDATION_ID"
+          echo "   Status: $INVALIDATION_STATUS"
+          echo "   Paths: /*"
+          echo ""
+          echo "⏳ Invalidation typically completes in 1-3 minutes"
+          echo "   CloudFront will now serve the latest deployed version"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: CloudFront cache invalidation skipped
+        if: vars.CLOUDFRONT_DISTRIBUTION_ID == ''
+        run: |
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "ℹ️  CloudFront Cache Invalidation: SKIPPED"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "CloudFront not configured (CLOUDFRONT_DISTRIBUTION_ID not set)"
+          echo ""
+          echo "To enable automatic cache invalidation after deployments:"
+          echo "   1. Run HTTPS setup: ./scripts/complete-https-setup.sh sagerstack.com"
+          echo "   2. Get distribution ID from setup output or AWS console"
+          echo "   3. Add GitHub variable: CLOUDFRONT_DISTRIBUTION_ID"
+          echo "      → Repository Settings → Secrets and variables → Actions → Variables"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

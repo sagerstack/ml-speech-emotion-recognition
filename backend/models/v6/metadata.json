@@ -1,0 +1,27 @@
+{
+  "version": "6",
+  "model_name": "Stacking Ensemble Model v6",
+  "model_type": "sklearn.pipeline.Pipeline (StandardScaler + StackingClassifier)",
+  "feature_dimension": 210,
+  "sklearn_version": "1.7.2",
+  "created_date": "2024-12-08",
+  "dataset": "CREMA-D",
+  "classes": ["angry", "disgust", "fear", "happy", "neutral", "sad"],
+  "num_classes": 6,
+  "accuracy": 0.8223,
+  "training_samples": "~5,581",
+  "validation_dataset": "RAVDESS",
+  "feature_extraction": "Enhanced features: MFCC (20) + Deltas (40) + Prosodic (8) + Mel Spectrogram (128) + Chroma (12) + ZCR (1) + RMS (1)",
+  "ensemble_type": "StackingClassifier",
+  "base_models": [
+    "GradientBoostingClassifier",
+    "RandomForestClassifier",
+    "KNeighborsClassifier",
+    "ExtraTreesClassifier",
+    "SVC",
+    "LogisticRegression",
+    "GaussianNB"
+  ],
+  "meta_classifier": "LogisticRegression",
+  "notes": "Pure sklearn implementation. No UltraEnsemble dependency. 43% smaller than v5 (680 MB vs 1,194 MB). Same feature extraction as v5."
+}

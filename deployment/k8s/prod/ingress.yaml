@@ -8,6 +8,9 @@ metadata:
     environment: production
   annotations:
     kubernetes.io/ingress.class: "alb"
+    # Share ALB with monitoring ingress
+    alb.ingress.kubernetes.io/group.name: "ml-emotion-prod"
+    alb.ingress.kubernetes.io/group.order: "10"
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
@@ -18,12 +21,8 @@ metadata:
     alb.ingress.kubernetes.io/unhealthy-threshold-count: '3'
     alb.ingress.kubernetes.io/success-codes: '200,302'
     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=300
-    # Enable both HTTP and HTTPS
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-    # SSL redirect for microphone access (required for st.audio_input)
-    alb.ingress.kubernetes.io/ssl-redirect: '443'
-    # Certificate ARN - UPDATE THIS with your ACM certificate ARN
-    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERT_ID
+    # HTTP only - HTTPS will be handled by CloudFront after setup
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
     # Session stickiness for WebSocket support (required for Streamlit)
     alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=86400
     # Enable CORS
