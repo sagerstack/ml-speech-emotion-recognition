@@ -112,7 +112,7 @@ class TestSageMakerIntegration:
         # Verify request payload
         request_body = json.loads(call_args.kwargs["Body"])
         assert "features" in request_body
-        assert len(request_body["features"]) == 180
+        assert len(request_body["features"]) == 210
         assert isinstance(request_body["features"][0], float)
 
         # Verify endpoint name
@@ -190,7 +190,7 @@ class TestSageMakerIntegration:
         # Verify format matches expected SageMaker input
         assert "features" in request_body
         assert isinstance(request_body["features"], list)
-        assert len(request_body["features"]) == 180
+        assert len(request_body["features"]) == 210
         assert all(isinstance(f, (int, float)) for f in request_body["features"])
 
         # Verify no other unexpected fields

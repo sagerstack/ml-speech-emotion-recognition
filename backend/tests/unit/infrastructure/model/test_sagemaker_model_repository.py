@@ -188,8 +188,8 @@ class TestSageMakerModelRepository:
 
         # Should still return info with defaults
         assert model_info is not None
-        assert model_info.model_type == "UltraEnsembleModel"  # Default
-        assert model_info.feature_dimension == 180  # Default
+        assert model_info.model_type == "sklearn.pipeline.Pipeline"  # Default for v6+
+        assert model_info.feature_dimension == 210  # Default for v6+
 
     def test_list_available_versions(self, repository, mock_boto3_client):
         """Test listing available versions."""

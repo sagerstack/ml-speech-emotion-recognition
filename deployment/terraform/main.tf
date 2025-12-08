@@ -784,3 +784,82 @@ resource "aws_iam_role_policy_attachment" "aws_load_balancer_controller" {
 #      --set vpcId=<VPC_ID>
 #
 # Note: Replace <VPC_ID> with the actual VPC ID from terraform output
+
+# ========================================
+# Backend Service IAM Role (IRSA)
+# ========================================
+
+# IAM Role for Backend Service to access SageMaker
+resource "aws_iam_role" "backend_service" {
+  name = "ml-speech-backend-irsa"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = module.eks.oidc_provider_arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "${module.eks.oidc_provider}:aud" = "sts.amazonaws.com"
+            "${module.eks.oidc_provider}:sub" = "system:serviceaccount:ml-speech-emotion:backend-service-account"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = merge(
+    local.tags,
+    {
+      Name        = "ml-speech-backend-irsa"
+      Service     = "backend"
+      Description = "IAM role for backend service to access SageMaker"
+    }
+  )
+}
+
+# IAM Policy for Backend Service SageMaker Access
+resource "aws_iam_policy" "backend_sagemaker" {
+  name        = "${local.project_name}-${local.environment}-backend-sagemaker"
+  description = "Policy for backend service to invoke SageMaker endpoints"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sagemaker:InvokeEndpoint",
+          "sagemaker:DescribeEndpoint",
+          "sagemaker:ListEndpoints",
+          "sagemaker:ListTags"
+        ]
+        Resource = [
+          "arn:aws:sagemaker:${var.aws_region}:${data.aws_caller_identity.current.account_id}:endpoint/prod-emotion-recognition-endpoint",
+          "arn:aws:sagemaker:${var.aws_region}:${data.aws_caller_identity.current.account_id}:endpoint/prod-emotion-recognition-endpoint/*"
+        ]
+      }
+    ]
+  })
+
+  tags = local.tags
+}
+
+# Data source for current AWS account ID
+data "aws_caller_identity" "current" {}
+
+# Attach SageMaker policy to backend IAM role
+resource "aws_iam_role_policy_attachment" "backend_sagemaker" {
+  policy_arn = aws_iam_policy.backend_sagemaker.arn
+  role       = aws_iam_role.backend_service.name
+}
+
+# Output the IAM role ARN for reference
+output "backend_irsa_role_arn" {
+  description = "IAM role ARN for backend service (IRSA)"
+  value       = aws_iam_role.backend_service.arn
+}
