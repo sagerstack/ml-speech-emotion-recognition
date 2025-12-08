@@ -386,7 +386,9 @@ resource "aws_iam_role_policy" "github_actions" {
           "ecr:BatchGetImage",
           "ecr:DescribeRepositories",
           "ecr:GetDownloadUrlForLayer",
-          "ecr:ListImages"
+          "ecr:ListImages",
+          "ecr:CreateRepository",
+          "ecr:PutLifecyclePolicy"
         ],
         Resource : "*"
       },
