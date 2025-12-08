@@ -249,14 +249,24 @@ async def get_latest_model_info(
 
         # Auto-detect latest model version
         latest_version = model_repository.get_latest_version()
+
+        # Check if any model version is available
+        if latest_version is None:
+            MODEL_INFO_REQUESTS_V2.labels(endpoint="latest_info", success=False).inc()
+            logger.warning("No model versions available")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No model versions available. Ensure models are deployed.",
+            )
+
         model_info = get_info_use_case.execute(str(latest_version))
 
         if model_info is None:
             MODEL_INFO_REQUESTS_V2.labels(endpoint="latest_info", success=False).inc()
-            logger.warning("Latest model not found")
+            logger.warning("Latest model not found", version=str(latest_version))
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Latest model not found",
+                detail=f"Model {latest_version} not found",
             )
 
         # Record success metrics

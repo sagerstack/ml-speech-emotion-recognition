@@ -38,6 +38,8 @@ spec:
           value: "0.0.0.0"
         - name: PORT
           value: "8000"
+        - name: ROOT_PATH
+          value: "/ml-ser"
         - name: ENVIRONMENT
           value: "kubernetes"
         - name: AWS_REGION

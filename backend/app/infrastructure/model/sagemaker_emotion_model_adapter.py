@@ -7,6 +7,7 @@ and only model inference is delegated to SageMaker.
 
 import json
 import time
+import uuid
 from typing import Any
 
 import boto3
@@ -37,7 +38,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
     """Adapts SageMaker endpoint invocations to domain EmotionModel interface.
 
     This adapter:
-    - Receives pre-extracted features from backend API (180 floats)
+    - Receives pre-extracted features from backend API (210 floats)
     - Converts features to SageMaker request format (JSON)
     - Invokes SageMaker endpoint with retry logic
     - Parses SageMaker response
@@ -127,7 +128,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
         5. Validate and return results
 
         Args:
-            features: Audio feature array of shape (180,) or (1, 180)
+            features: Audio feature array of shape (210,) or (1, 210)
 
         Returns:
             Dictionary mapping each Emotion to its probability (0.0-1.0)
@@ -140,23 +141,27 @@ class SageMakerEmotionModelAdapter(EmotionModel):
             SageMakerAuthenticationError: If IAM permissions are insufficient
             SageMakerInvalidResponseError: If response is malformed
         """
-        self.logger.debug(
-            "Running SageMaker inference",
+        # Generate correlation ID for request tracing
+        correlation_id = str(uuid.uuid4())
+
+        self.logger.info(
+            "Starting SageMaker inference",
             endpoint_name=self.endpoint_name,
             input_shape=features.shape,
+            correlation_id=correlation_id,
         )
 
         start_time = time.time()
 
         try:
             # Step 1: Validate and serialize features
-            features_list = self._serialize_features(features)
+            features_list = self._serialize_features(features, correlation_id)
 
             # Step 2: Invoke SageMaker endpoint with retry logic
-            response_body = self._invoke_endpoint_with_retry(features_list)
+            response_body = self._invoke_endpoint_with_retry(features_list, correlation_id)
 
             # Step 3: Parse response
-            probabilities = self._parse_response(response_body)
+            probabilities = self._parse_response(response_body, correlation_id)
 
             # Step 4: Map to Emotion enum
             emotion_probabilities = self._map_to_emotions(probabilities)
@@ -168,11 +173,12 @@ class SageMakerEmotionModelAdapter(EmotionModel):
             predicted_emotion = max(emotion_probabilities.items(), key=lambda x: x[1])
 
             self.logger.info(
-                "SageMaker inference completed",
+                "SageMaker inference completed successfully",
                 endpoint_name=self.endpoint_name,
                 predicted_emotion=str(predicted_emotion[0]),
                 confidence=round(predicted_emotion[1], 4),
                 inference_time_ms=round(inference_time_ms, 2),
+                correlation_id=correlation_id,
             )
 
             return emotion_probabilities
@@ -194,19 +200,21 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                 endpoint_name=self.endpoint_name,
                 error=str(e),
                 input_shape=features.shape,
+                correlation_id=correlation_id,
             )
             raise PredictionFailedError(
                 f"SageMaker inference failed: {type(e).__name__}: {str(e)}"
             ) from e
 
-    def _serialize_features(self, features: np.ndarray) -> list[float]:
+    def _serialize_features(self, features: np.ndarray, correlation_id: str) -> list[float]:
         """Serialize features to list for JSON request.
 
         Args:
-            features: Feature array of shape (180,) or (1, 180)
+            features: Feature array of shape (210,) or (1, 210)
+            correlation_id: Request correlation ID for tracing
 
         Returns:
-            List of 180 floats
+            List of 210 floats
 
         Raises:
             PredictionFailedError: If features are invalid
@@ -221,28 +229,39 @@ class SageMakerEmotionModelAdapter(EmotionModel):
         elif len(features.shape) != 1:
             raise PredictionFailedError(
                 f"Invalid features shape: {features.shape}. "
-                f"Expected 1D (180,) or 2D (1, 180)"
+                f"Expected 1D (210,) or 2D (1, 210)"
             )
 
-        # Validate feature dimension (180 features from LibrosaAudioProcessor)
-        if len(features) != 180:
+        # Validate feature dimension (210 features from LibrosaAudioProcessor)
+        if len(features) != 210:
             raise PredictionFailedError(
-                f"Expected 180 features, got {len(features)}. "
+                f"Expected 210 features, got {len(features)}. "
                 f"Ensure LibrosaAudioProcessor extracts correct number of features."
             )
 
         # Convert to Python list of floats
         features_list = [float(f) for f in features]
 
+        # Calculate feature statistics for debugging
+        features_array = np.array(features_list)
+        feature_stats = {
+            "min": float(features_array.min()),
+            "max": float(features_array.max()),
+            "mean": float(features_array.mean()),
+            "std": float(features_array.std()),
+        }
+
         self.logger.debug(
-            "Features serialized",
+            "Features serialized for SageMaker request",
             num_features=len(features_list),
             sample_features=features_list[:5],  # Log first 5 for debugging
+            feature_stats=feature_stats,
+            correlation_id=correlation_id,
         )
 
         return features_list
 
-    def _invoke_endpoint_with_retry(self, features_list: list[float]) -> dict[str, Any]:
+    def _invoke_endpoint_with_retry(self, features_list: list[float], correlation_id: str) -> dict[str, Any]:
         """Invoke SageMaker endpoint with exponential backoff retry.
 
         Retry strategy:
@@ -251,7 +270,8 @@ class SageMakerEmotionModelAdapter(EmotionModel):
         - Timeout errors: Raise immediately, no retry (already waited)
 
         Args:
-            features_list: List of 180 features
+            features_list: List of 210 features
+            correlation_id: Request correlation ID for tracing
 
         Returns:
             Parsed JSON response body
@@ -263,7 +283,25 @@ class SageMakerEmotionModelAdapter(EmotionModel):
             SageMakerThrottlingError: Throttling after retries exhausted
         """
         # Prepare request payload
-        request_body = json.dumps({"features": features_list})
+        request_payload = {"features": features_list}
+        request_body = json.dumps(request_payload)
+
+        # Log the request being sent to SageMaker
+        self.logger.info(
+            "Sending request to SageMaker endpoint",
+            endpoint_name=self.endpoint_name,
+            request_size_bytes=len(request_body),
+            num_features=len(features_list),
+            correlation_id=correlation_id,
+        )
+
+        # Log full request payload at debug level
+        self.logger.debug(
+            "SageMaker request payload",
+            endpoint_name=self.endpoint_name,
+            request_payload=request_payload,
+            correlation_id=correlation_id,
+        )
 
         retry_count = 0
         last_error = None
@@ -275,6 +313,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                     endpoint_name=self.endpoint_name,
                     attempt=retry_count + 1,
                     max_attempts=self.max_retries + 1,
+                    correlation_id=correlation_id,
                 )
 
                 # Invoke endpoint
@@ -286,12 +325,24 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                 )
 
                 # Parse response
-                response_body = json.loads(response["Body"].read().decode("utf-8"))
+                response_body_bytes = response["Body"].read()
+                response_body = json.loads(response_body_bytes.decode("utf-8"))
 
-                self.logger.debug(
-                    "SageMaker endpoint invoked successfully",
+                # Log the response received from SageMaker
+                self.logger.info(
+                    "Received response from SageMaker endpoint",
                     endpoint_name=self.endpoint_name,
+                    response_size_bytes=len(response_body_bytes),
                     attempt=retry_count + 1,
+                    correlation_id=correlation_id,
+                )
+
+                # Log full response payload at debug level
+                self.logger.debug(
+                    "SageMaker response payload",
+                    endpoint_name=self.endpoint_name,
+                    response_body=response_body,
+                    correlation_id=correlation_id,
                 )
 
                 return response_body
@@ -302,6 +353,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                     "SageMaker endpoint timeout",
                     endpoint_name=self.endpoint_name,
                     timeout_seconds=self.timeout_seconds,
+                    correlation_id=correlation_id,
                 )
                 raise SageMakerTimeoutError(self.endpoint_name, self.timeout_seconds) from e
 
@@ -310,6 +362,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                 self.logger.error(
                     "SageMaker endpoint connection timeout",
                     endpoint_name=self.endpoint_name,
+                    correlation_id=correlation_id,
                 )
                 raise SageMakerTimeoutError(self.endpoint_name, self.timeout_seconds) from e
 
@@ -324,6 +377,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                             "SageMaker endpoint not found",
                             endpoint_name=self.endpoint_name,
                             error_code=error_code,
+                            correlation_id=correlation_id,
                         )
                         raise SageMakerEndpointNotFoundError(self.endpoint_name) from e
 
@@ -338,6 +392,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                         "SageMaker authentication failed",
                         endpoint_name=self.endpoint_name,
                         error_code=error_code,
+                        correlation_id=correlation_id,
                     )
                     raise SageMakerAuthenticationError(self.endpoint_name, error_code) from e
 
@@ -351,6 +406,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                             "SageMaker throttling - max retries exceeded",
                             endpoint_name=self.endpoint_name,
                             retry_count=retry_count,
+                            correlation_id=correlation_id,
                         )
                         raise SageMakerThrottlingError(self.endpoint_name) from e
 
@@ -361,6 +417,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                         endpoint_name=self.endpoint_name,
                         retry_count=retry_count,
                         sleep_time=sleep_time,
+                        correlation_id=correlation_id,
                     )
                     time.sleep(sleep_time)
                     continue
@@ -371,6 +428,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                     endpoint_name=self.endpoint_name,
                     error_code=error_code,
                     error_message=error_message,
+                    correlation_id=correlation_id,
                 )
                 raise PredictionFailedError(
                     f"SageMaker error ({error_code}): {error_message}"
@@ -382,6 +440,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                     "Invalid JSON in SageMaker response",
                     endpoint_name=self.endpoint_name,
                     error=str(e),
+                    correlation_id=correlation_id,
                 )
                 raise SageMakerInvalidResponseError(
                     self.endpoint_name, f"Response is not valid JSON: {str(e)}"
@@ -392,7 +451,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
             raise SageMakerThrottlingError(self.endpoint_name) from last_error
         raise PredictionFailedError("Unexpected error in retry logic")
 
-    def _parse_response(self, response_body: dict[str, Any]) -> np.ndarray:
+    def _parse_response(self, response_body: dict[str, Any], correlation_id: str) -> np.ndarray:
         """Parse SageMaker response and extract probabilities.
 
         Expected response format:
@@ -407,11 +466,12 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                 "neutral": 0.05,
                 "sad": 0.02
             },
-            "model_version": "v5"
+            "model_version": "v6"
         }
 
         Args:
             response_body: Parsed JSON response from SageMaker
+            correlation_id: Request correlation ID for tracing
 
         Returns:
             Numpy array of 6 probabilities in order: [angry, disgust, fear, happy, neutral, sad]
@@ -420,6 +480,15 @@ class SageMakerEmotionModelAdapter(EmotionModel):
             SageMakerInvalidResponseError: If response format is invalid
         """
         try:
+            # Extract and log model version if available
+            model_version = response_body.get("model_version", "unknown")
+            self.logger.debug(
+                "Parsing SageMaker response",
+                endpoint_name=self.endpoint_name,
+                model_version=model_version,
+                correlation_id=correlation_id,
+            )
+
             # Extract probabilities dictionary
             probabilities_dict = response_body.get("probabilities")
 
@@ -473,6 +542,8 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                 "Response parsed successfully",
                 num_probabilities=len(probabilities_array),
                 probabilities_sum=round(sum(probabilities_array), 4),
+                model_version=model_version,
+                correlation_id=correlation_id,
             )
 
             return probabilities_array
@@ -488,6 +559,7 @@ class SageMakerEmotionModelAdapter(EmotionModel):
                 endpoint_name=self.endpoint_name,
                 error=str(e),
                 response_body=response_body,
+                correlation_id=correlation_id,
             )
             raise SageMakerInvalidResponseError(
                 self.endpoint_name,

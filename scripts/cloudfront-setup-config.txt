@@ -1,0 +1,24 @@
+# CloudFront + Custom Domain Setup Configuration
+# Generated: Mon Dec  8 22:11:07 +08 2025
+
+DOMAIN_NAME="sagerstack.com"
+CERTIFICATE_ARN="arn:aws:acm:us-east-1:303440520181:certificate/0c9e0a0e-2bfe-4ea9-8832-b2f0a0e7175b"
+ALB_DNS="k8s-mlemotionprod-61f5aa3344-665802805.us-east-1.elb.amazonaws.com"
+AWS_REGION="us-east-1"
+
+# Next Steps:
+# 1. Create CloudFront distribution (see below)
+# 2. Point domain DNS to CloudFront
+# 3. Test HTTPS access
+
+# CloudFront Distribution Settings:
+# - Origin Domain: k8s-mlemotionprod-61f5aa3344-665802805.us-east-1.elb.amazonaws.com
+# - Alternate Domain Names (CNAMEs): sagerstack.com, www.sagerstack.com
+# - Custom SSL Certificate: arn:aws:acm:us-east-1:303440520181:certificate/0c9e0a0e-2bfe-4ea9-8832-b2f0a0e7175b
+# - Viewer Protocol Policy: Redirect HTTP to HTTPS
+# - Cache Policy: CachingDisabled
+# - Origin Request Policy: AllViewer
+
+# CloudFront Details (added Mon Dec  8 22:11:11 +08 2025)
+DISTRIBUTION_ID="E3PMTOKTYLQCR5"
+CLOUDFRONT_DOMAIN="d3twmn3tsnqpox.cloudfront.net"

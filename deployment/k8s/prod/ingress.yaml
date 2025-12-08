@@ -39,7 +39,7 @@ spec:
   - http:
       paths:
       # Backend API v1 endpoints
-      - path: /v1
+      - path: /ml-ser/v1
         pathType: Prefix
         backend:
           service:
@@ -47,7 +47,7 @@ spec:
             port:
               number: 8000
       # Backend API v2 endpoints (for inference)
-      - path: /v2
+      - path: /ml-ser/v2
         pathType: Prefix
         backend:
           service:
@@ -55,7 +55,7 @@ spec:
             port:
               number: 8000
       # Legacy /api prefix support
-      - path: /api
+      - path: /ml-ser/api
         pathType: Prefix
         backend:
           service:
@@ -63,15 +63,31 @@ spec:
             port:
               number: 8000
       # Backend health check
-      - path: /health
+      - path: /ml-ser/health
         pathType: Exact
         backend:
           service:
             name: backend
             port:
               number: 8000
-      # API documentation
-      - path: /docs
+      # API documentation (Swagger UI)
+      - path: /ml-ser/docs
+        pathType: Prefix
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+      # OpenAPI schema (required by Swagger UI)
+      - path: /ml-ser/openapi.json
+        pathType: Exact
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+      # ReDoc documentation
+      - path: /ml-ser/redoc
         pathType: Prefix
         backend:
           service:
@@ -79,15 +95,24 @@ spec:
             port:
               number: 8000
       # Prometheus metrics
-      - path: /metrics
+      - path: /ml-ser/metrics
         pathType: Exact
         backend:
           service:
             name: backend
             port:
               number: 9090
-      # Streamlit frontend - must be last (catch-all)
-      - path: /
+      # Grafana monitoring - consolidated from monitoring-ingress.yaml
+      - path: /ml-ser/grafana
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            namespace: monitoring
+            port:
+              number: 3000
+      # Streamlit frontend - must be last (catch-all for /ml-ser/*)
+      - path: /ml-ser
         pathType: Prefix
         backend:
           service:
