@@ -234,8 +234,8 @@ async def get_latest_model_info(
 
     Returns:
         {
-            "version": "v5",
-            "model_type": "UltraEnsembleModel",
+            "version": "v6",
+            "model_type": "sklearn.pipeline.Pipeline",
             "feature_dimension": 210,
             "available": true,
             "is_latest": true

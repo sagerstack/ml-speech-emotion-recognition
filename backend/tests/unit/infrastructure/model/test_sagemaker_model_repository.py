@@ -41,7 +41,7 @@ class TestSageMakerModelRepository:
     @pytest.fixture
     def model_version(self):
         """Create model version."""
-        return ModelVersion.from_string("v5")
+        return ModelVersion.from_string("v6")
 
     def test_repository_initialization(self, mock_boto3_client):
         """Test repository initializes correctly."""
@@ -128,14 +128,15 @@ class TestSageMakerModelRepository:
         mock_boto3_client.describe_endpoint.return_value = {
             "EndpointStatus": "InService",
             "EndpointName": "ml-ser-endpoint4",
+            "EndpointConfigName": "ml-emotion-v6-config",
             "EndpointArn": "arn:aws:sagemaker:us-east-1:123456789:endpoint/ml-ser-endpoint4",
             "CreationTime": creation_time,
         }
 
         mock_boto3_client.list_tags.return_value = {
             "Tags": [
-                {"Key": "model_type", "Value": "UltraEnsembleModel"},
-                {"Key": "feature_dimension", "Value": "180"},
+                {"Key": "model_type", "Value": "sklearn.pipeline.Pipeline"},
+                {"Key": "feature_dimension", "Value": "210"},
                 {"Key": "sklearn_version", "Value": "1.7.2"},
                 {"Key": "num_classes", "Value": "6"},
             ]
@@ -145,8 +146,8 @@ class TestSageMakerModelRepository:
 
         assert model_info is not None
         assert model_info.version == model_version
-        assert model_info.model_type == "UltraEnsembleModel"
-        assert model_info.feature_dimension == 180
+        assert model_info.model_type == "sklearn.pipeline.Pipeline"
+        assert model_info.feature_dimension == 210
         assert model_info.sklearn_version == "1.7.2"
         assert model_info.num_classes == 6
         assert "ml-ser-endpoint4" in model_info.notes
@@ -177,6 +178,7 @@ class TestSageMakerModelRepository:
         mock_boto3_client.describe_endpoint.return_value = {
             "EndpointStatus": "InService",
             "EndpointName": "ml-ser-endpoint4",
+            "EndpointConfigName": "ml-emotion-v6-config",
             "EndpointArn": "arn:aws:sagemaker:us-east-1:123456789:endpoint/ml-ser-endpoint4",
             "CreationTime": creation_time,
         }
@@ -188,25 +190,22 @@ class TestSageMakerModelRepository:
 
         # Should still return info with defaults
         assert model_info is not None
-        assert model_info.model_type == "sklearn.pipeline.Pipeline"  # Default for v6+
-        assert model_info.feature_dimension == 210  # Default for v6+
+        assert model_info.model_type == "sklearn.pipeline.Pipeline"  # Default
+        assert model_info.feature_dimension == 210  # Default
 
     def test_list_available_versions(self, repository, mock_boto3_client):
         """Test listing available versions."""
-        creation_time = datetime(2025, 1, 1, 12, 0, 0)
         mock_boto3_client.describe_endpoint.return_value = {
             "EndpointStatus": "InService",
             "EndpointName": "ml-ser-endpoint4",
+            "EndpointConfigName": "ml-emotion-v6-config",
             "EndpointArn": "arn:aws:sagemaker:us-east-1:123456789:endpoint/ml-ser-endpoint4",
-            "CreationTime": creation_time,
         }
-
-        mock_boto3_client.list_tags.return_value = {"Tags": []}
 
         versions = repository.list_available_versions()
 
         assert len(versions) == 1
-        assert versions[0] == ModelVersion.from_string("v5")
+        assert versions[0] == ModelVersion.from_string("v6")
 
     def test_list_available_versions_endpoint_not_available(
         self, repository, mock_boto3_client
@@ -287,20 +286,17 @@ class TestSageMakerModelRepository:
 
     def test_get_latest_version(self, repository, mock_boto3_client):
         """Test getting latest version."""
-        creation_time = datetime(2025, 1, 1, 12, 0, 0)
         mock_boto3_client.describe_endpoint.return_value = {
             "EndpointStatus": "InService",
             "EndpointName": "ml-ser-endpoint4",
+            "EndpointConfigName": "ml-emotion-v6-config",
             "EndpointArn": "arn:aws:sagemaker:us-east-1:123456789:endpoint/ml-ser-endpoint4",
-            "CreationTime": creation_time,
         }
-
-        mock_boto3_client.list_tags.return_value = {"Tags": []}
 
         latest = repository.get_latest_version()
 
         assert latest is not None
-        assert latest == ModelVersion.from_string("v5")
+        assert latest == ModelVersion.from_string("v6")
 
     def test_get_latest_version_none(self, repository, mock_boto3_client):
         """Test getting latest version when no endpoint available."""
