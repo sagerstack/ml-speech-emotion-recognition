@@ -1,5 +1,7 @@
 name: Deploy to Production
 
+# ⚠️ IMPORTANT: This workflow can ONLY be triggered from the main branch
+# Production deployments must only come from the protected main branch
 on:
   workflow_dispatch:
     inputs:
@@ -29,9 +31,45 @@ env:
   SAGEMAKER_ENDPOINT_BASE_NAME: ml-ser
 
 jobs:
+  # Branch validation job - ensures CD only runs from main branch
+  validate-branch:
+    name: Validate Branch (main only)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch is main
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔒 Branch Validation for Production Deployment"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Current branch: ${{ github.ref_name }}"
+          echo "Required branch: main"
+          echo ""
+
+          if [ "${{ github.ref_name }}" != "main" ]; then
+            echo "❌ ERROR: Production deployments can only be triggered from the 'main' branch"
+            echo ""
+            echo "Current branch: ${{ github.ref_name }}"
+            echo "Required branch: main"
+            echo ""
+            echo "To deploy to production:"
+            echo "  1. Merge your changes to the main branch via pull request"
+            echo "  2. Switch to main branch: git checkout main"
+            echo "  3. Pull latest changes: git pull origin main"
+            echo "  4. Trigger the deployment from main branch"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+          fi
+
+          echo "✅ Branch validation passed - deploying from main branch"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
   deploy-model-to-sagemaker:
     name: Deploy Model to SageMaker
     runs-on: ubuntu-latest
+    needs: [validate-branch]
     if: ${{ inputs.deploy_sagemaker }}
     permissions:
       id-token: write
@@ -213,7 +251,7 @@ jobs:
   deploy:
     name: Deploy to EKS
     runs-on: ubuntu-latest
-    needs: [deploy-model-to-sagemaker]
+    needs: [validate-branch, deploy-model-to-sagemaker]
     if: ${{ always() && inputs.deploy_eks }}
     permissions:
       id-token: write
