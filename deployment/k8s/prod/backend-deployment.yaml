@@ -117,6 +117,8 @@ spec:
               name: app-config
               key: EVIDENTLY_WORKSPACE_PATH
         # S3 reference dataset for Evidently monitoring (lazy loaded on first report generation)
+        - name: MONITORING_REFERENCE_S3_BUCKET
+          value: "ml-speech-emotion-models-us-east-1"
         - name: MONITORING_REFERENCE_S3_KEY
           value: "monitoring/reference_dataset.csv"
         # Librosa/Numba caching configuration
