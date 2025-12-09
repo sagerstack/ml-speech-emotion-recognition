@@ -116,6 +116,9 @@ spec:
             configMapKeyRef:
               name: app-config
               key: EVIDENTLY_WORKSPACE_PATH
+        # S3 reference dataset for Evidently monitoring (lazy loaded on first report generation)
+        - name: MONITORING_REFERENCE_S3_KEY
+          value: "monitoring/reference_dataset.csv"
         # Librosa/Numba caching configuration
         # Redirect cache to /tmp to prevent "cannot cache function" errors with readOnlyRootFilesystem
         - name: LIBROSA_CACHE_DIR
@@ -231,6 +234,12 @@ metadata:
     prometheus.io/path: "/metrics"
 spec:
   type: ClusterIP
+  # Session affinity ensures requests from the same client go to the same pod
+  # Required because prediction buffer is in-memory per pod
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
   ports:
   - name: http
     port: 8000

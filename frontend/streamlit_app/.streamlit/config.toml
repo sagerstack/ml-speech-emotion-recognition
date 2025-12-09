@@ -25,6 +25,6 @@ serverAddress = "0.0.0.0"
 serverPort = 8501
 
 [client]
-# Prevent toolbar from showing in production
-toolbarMode = "minimal"
+# Show toolbar with settings but hide Deploy button
+toolbarMode = "viewer"
 showErrorDetails = true

@@ -16,6 +16,7 @@ from feature_charts import heatmap_chart, probability_bar, waveform_chart, mfcc_
 from mock_inference import AnalysisResult
 from real_inference import real_lab_backend, mock_lab_backend, get_backend_health
 from api_client import ML_APP_BASE_URL
+from sidebar import render_sidebar, get_backend_status, get_backend_health_cached, ENABLE_MOCK_MODE, MODEL_PERFORMANCE_PAGE
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -27,29 +28,11 @@ st.set_page_config(
 )
 
 BASE_DIR = Path(__file__).resolve().parent
-HISTORY_PAGE = BASE_DIR / "pages" / "1_History.py"
-METRICS_PAGE = BASE_DIR / "pages" / "2_Metrics.py"
 MONITORING_PAGE = BASE_DIR / "pages" / "3_Monitoring.py"
-MODEL_PERFORMANCE_PAGE = BASE_DIR / "pages" / "4_Model Performance.py"
 
 # Configuration
-ENABLE_MOCK_MODE = os.getenv("ENABLE_MOCK_MODE", "false").lower() == "true"
 FALLBACK_TO_MOCK = os.getenv("FALLBACK_TO_MOCK", "true").lower() == "true"
 SHOW_DEBUG_INFO = os.getenv("SHOW_DEBUG_INFO", "true").lower() == "true"
-
-# Initialize backend health status
-@st.cache_data(ttl=30, show_spinner=False)  # Cache for 30 seconds, then auto-refresh without UI spinner
-def get_backend_health_cached():
-    """Cache backend health check with 30-second TTL to auto-refresh status"""
-    return get_backend_health()
-
-def get_backend_status():
-    """Get backend health status and determine which backend to use"""
-    backend_healthy = get_backend_health_cached()
-    force_mock = st.session_state.get("force_mock_mode", ENABLE_MOCK_MODE)
-    use_real_backend = backend_healthy and not force_mock
-
-    return use_real_backend, backend_healthy, force_mock
 
 def get_active_backend():
     """Get the active backend (real or mock)"""
@@ -407,7 +390,7 @@ def stage_audio_recording() -> AnalysisResult | None:
 
             try:
                 audio_bytes = _load_audio_from_upload(audio_source)
-                with st.spinner("Computing local audio features..."):
+                with st.spinner("Extracting audio features..."):
                     features = _generate_local_features(audio_bytes, label, engine)
 
                 _store_audio_state(audio_bytes, label, engine, features)
@@ -654,7 +637,7 @@ def stage_feature_analysis(feature_summary: dict | None):
             try:
                 file_obj = io.BytesIO(audio_bytes)
                 file_obj.name = filename
-                with st.spinner("Sending audio to inference backend..."):
+                with st.spinner("Running inference on SageMaker..."):
                     result = backend.analyze(file_obj, engine=engine)
 
                 st.session_state[PAGE_KEY] = result
@@ -962,8 +945,18 @@ def _submit_feedback(prediction_id: str, actual_emotion: str) -> tuple[bool, str
             json={"actual_emotion": actual_emotion},
             timeout=15,
         )
-        resp.raise_for_status()
-        return True, "Thanks for your feedback!"
+        if resp.status_code == 200:
+            return True, "Thanks for your feedback!"
+        elif resp.status_code == 404:
+            # Get detailed error from API response
+            try:
+                detail = resp.json().get("detail", "Prediction not found in buffer")
+            except Exception:
+                detail = "Prediction not found in buffer (may have been evicted)"
+            return False, detail
+        else:
+            resp.raise_for_status()
+            return True, "Feedback submitted"
     except requests.RequestException as exc:
         return False, str(exc)
 
@@ -1041,7 +1034,7 @@ def _reset_workflow_state():
     st.session_state.pop("iter5-tabs", None)
     # Reset to Step 1
     st.session_state[TAB_INDEX_KEY] = 0
-    st.rerun()
+    # Note: No st.rerun() needed - Streamlit auto-reruns after callbacks
 
 
 def render_variant_compact_cards(payload: dict):
@@ -1167,46 +1160,13 @@ def home_page():
     st.title("Speech Emotion Recognition")
     st.caption("A project to analyze and infer emotions from audio inputs.")
 
-    # Sidebar with backend information and controls
-    with st.sidebar:
-        st.markdown("## ⚙️ Backend Settings")
+    # Render shared sidebar
+    render_sidebar()
 
-        # Backend selection controls
-        use_real_backend, backend_healthy, _ = get_backend_status()
+    # Get workflow state first to validate tab selection
+    inference_result = st.session_state.get(PAGE_KEY)
+    feature_summary = st.session_state.get(AUDIO_FEATURES_KEY)
 
-        # Backend mode toggle
-        mock_mode = st.toggle(
-            "Enable Mock Mode",
-            value=ENABLE_MOCK_MODE,
-            key="force_mock_mode",
-            help="Enable to always use mock inference regardless of backend availability"
-        )
-
-        # Environment info
-        st.markdown("### 📋 API Status")
-
-        # Get the current force mock mode state
-        force_mock_enabled = st.session_state.get("force_mock_mode", ENABLE_MOCK_MODE)
-
-        if force_mock_enabled:
-            st.info("🔵 Mock Mode (Forced)", icon="ℹ️")
-        elif use_real_backend:
-            st.success("✅ Active", icon="🟢")
-        elif not backend_healthy:
-            st.error("❌ Backend Unavailable", icon="🔴")
-        else:
-            st.warning("🟡 Using Mock (Fallback)", icon="⚠️")
-
-        # Test API Health button - always visible (unless mock mode is forced)
-        # This allows users to manually re-check backend health
-        if not force_mock_enabled:
-            if st.button("🔗 Test API Health", key="test_api_health_btn"):
-                # Clear the cached health check to force a fresh check
-                get_backend_health_cached.clear()
-                with st.spinner("Testing API connection..."):
-                    get_backend_health()
-                    st.rerun()  # Rerun to refresh the primary status banner only
-        
     current_index = st.session_state.get(TAB_INDEX_KEY, 0)
     tab_choice = stac.tabs(
         items=TAB_ITEMS,
@@ -1220,9 +1180,18 @@ def home_page():
         selected_index = TAB_LABELS.index(tab_choice)
     except ValueError:
         selected_index = current_index
+
+    # Validate tab selection against workflow state
+    # Can't be on Step 3 without inference result
+    if selected_index == 2 and inference_result is None:
+        selected_index = 0
+        tab_choice = TAB_LABELS[0]
+    # Can't be on Step 2 without feature summary
+    elif selected_index == 1 and feature_summary is None:
+        selected_index = 0
+        tab_choice = TAB_LABELS[0]
+
     st.session_state[TAB_INDEX_KEY] = selected_index
-    inference_result = st.session_state.get(PAGE_KEY)
-    feature_summary = st.session_state.get(AUDIO_FEATURES_KEY)
 
     if tab_choice == "Step 1 · Audio Capture":
         stage_audio_recording()
@@ -1235,31 +1204,24 @@ def home_page():
 
 
 if __name__ == "__main__":
+    # Create page objects
+    home_page_obj = st.Page(home_page, title="Home", icon="🏠")
+    monitoring_page_obj = st.Page(
+        str(MONITORING_PAGE),
+        title="Monitoring",
+        icon="🔍",
+    )
+    model_performance_page_obj = st.Page(
+        str(MODEL_PERFORMANCE_PAGE),
+        title="Model Performance",
+        icon="🧭",
+    )
+
+    # Store page objects in session state for sidebar navigation
+    st.session_state["_page_home"] = home_page_obj
+
     current_page = st.navigation(
-        [
-            st.Page(home_page, title="Home", icon="🏠"),
-            st.Page(
-                str(HISTORY_PAGE),
-                title="History",
-                icon="🕓",
-            ),
-            st.Page(
-                str(METRICS_PAGE),
-                title="Metrics",
-                icon="📊",
-            ),
-            st.Page(
-                str(MONITORING_PAGE),
-                title="Monitoring",
-                icon="🔍",
-            ),
-            st.Page(
-                str(MODEL_PERFORMANCE_PAGE),
-                title="Model Performance",
-                icon="🧭",
-            ),
-        ],
-        position="sidebar",
-        expanded=False,
+        [home_page_obj, monitoring_page_obj, model_performance_page_obj],
+        position="top",
     )
     current_page.run()

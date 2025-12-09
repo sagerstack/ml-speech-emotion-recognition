@@ -1,9 +1,16 @@
+import sys
+from pathlib import Path
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 from requests.exceptions import RequestException
 
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from api_client import get_api_client
+from sidebar import render_sidebar
 
 
 def _format_pct(value: float | None, decimals: int = 1) -> str:
@@ -21,6 +28,9 @@ def _format_float(value: float | None, decimals: int = 3) -> str:
 def render_model_performance() -> None:
     st.title("🧭 Model Performance")
     st.caption("Live view of Evidently metrics, drift signals, and model metadata.")
+
+    # Render shared sidebar
+    render_sidebar()
 
     client = get_api_client()
 
