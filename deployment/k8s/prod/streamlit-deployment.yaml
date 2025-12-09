@@ -71,6 +71,9 @@ spec:
           value: ""
         - name: LIBROSA_CACHE_LEVEL
           value: "0"
+        # Set joblib temp folder to writable location for memory-mapped operations
+        - name: JOBLIB_TEMP_FOLDER
+          value: "/tmp"
         resources:
           requests:
             memory: "512Mi"
