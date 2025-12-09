@@ -143,6 +143,29 @@ echo -e "${GREEN}  ✓ SageMaker package uploaded${NC}"
 rm -rf "$TEMP_PACKAGE_DIR"
 rm model.tar.gz
 
+# ============================================================================
+# Upload Reference Dataset for Evidently Monitoring
+# ============================================================================
+
+REFERENCE_DATASET="$PROJECT_ROOT/backend/monitoring_data/reference_dataset.csv"
+
+if [ -f "$REFERENCE_DATASET" ]; then
+  echo ""
+  echo -e "${BLUE}📊 Uploading Evidently reference dataset...${NC}"
+  REFERENCE_SIZE=$(du -h "$REFERENCE_DATASET" | cut -f1)
+  echo -e "${YELLOW}  → Uploading reference_dataset.csv ($REFERENCE_SIZE)...${NC}"
+
+  aws s3 cp "$REFERENCE_DATASET" \
+    "s3://$S3_BUCKET/monitoring/reference_dataset.csv" \
+    --profile "$AWS_PROFILE" \
+    --no-progress
+
+  echo -e "${GREEN}  ✓ Reference dataset uploaded to s3://$S3_BUCKET/monitoring/reference_dataset.csv${NC}"
+else
+  echo ""
+  echo -e "${YELLOW}⚠ Reference dataset not found at $REFERENCE_DATASET - skipping${NC}"
+fi
+
 # Final success message
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -151,6 +174,9 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo ""
 echo -e "${BLUE}📦 SageMaker package:${NC}"
 echo "   s3://$S3_BUCKET/sagemaker-models/$MODEL_VERSION/model.tar.gz"
+echo ""
+echo -e "${BLUE}📊 Evidently reference dataset:${NC}"
+echo "   s3://$S3_BUCKET/monitoring/reference_dataset.csv"
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
 echo "  1. Verify upload: aws s3 ls s3://$S3_BUCKET/sagemaker-models/$MODEL_VERSION/ --profile $AWS_PROFILE"
