@@ -2,14 +2,14 @@
 FROM python:3.11-slim
 
 # Set environment variables
-# NUMBA_DISABLE_JIT=1 prevents numba from JIT-compiling functions,
-# which fixes Streamlit caching issues with librosa's numba-wrapped functions
+# NUMBA_CACHE_DIR=/tmp allows numba to cache compiled functions in a writable location
+# (required because the container filesystem is read-only)
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    NUMBA_DISABLE_JIT=1
+    NUMBA_CACHE_DIR=/tmp/numba_cache
 
 # Install only essential system dependencies
 # - libsndfile1: Required by soundfile (librosa dependency) for audio file I/O
