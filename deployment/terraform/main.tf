@@ -842,6 +842,15 @@ resource "aws_iam_policy" "backend_sagemaker" {
         Resource = [
           "arn:aws:sagemaker:${var.aws_region}:${data.aws_caller_identity.current.account_id}:endpoint/ml-ser-*"
         ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject"
+        ]
+        Resource = [
+          "${module.sagemaker.model_storage_bucket_arn}/monitoring/*"
+        ]
       }
     ]
   })

@@ -125,6 +125,12 @@ metadata:
     environment: local
 spec:
   type: ClusterIP
+  # Session affinity ensures requests from the same client go to the same pod
+  # Required because prediction buffer is in-memory per pod
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
   ports:
   - name: http
     port: 8000
