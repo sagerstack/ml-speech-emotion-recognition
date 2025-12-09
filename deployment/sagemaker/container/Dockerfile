@@ -18,7 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python dependencies
 # Pin exact versions to match local environment
+# Add retry logic and increased timeout for network reliability
 RUN pip install --no-cache-dir \
+    --timeout 300 \
+    --retries 5 \
     numpy==2.1.0 \
     scikit-learn==1.7.2 \
     scipy>=1.11.0 \
