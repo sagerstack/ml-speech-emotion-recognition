@@ -12,7 +12,14 @@ Observability stack includes:
 Configuration: Local development first, then AWS deployment
 """
 
+# IMPORTANT: Disable librosa/numba caching BEFORE any imports
+# This fixes "cannot cache function" errors in containerized/serverless environments
+# where the filesystem may be read-only or function locators fail
 import os
+
+os.environ["LIBROSA_CACHE_DIR"] = ""
+os.environ["LIBROSA_CACHE_LEVEL"] = "0"
+os.environ["NUMBA_CACHE_DIR"] = "/tmp/numba_cache"
 from typing import Any
 
 import uvicorn
