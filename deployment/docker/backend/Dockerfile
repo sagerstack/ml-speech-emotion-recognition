@@ -33,9 +33,14 @@ RUN poetry install --without dev --no-interaction --no-ansi
 FROM python:3.11-slim AS production
 
 # Set environment variables
+# LIBROSA_CACHE_DIR/LEVEL: Disable librosa caching to prevent "cannot cache function" errors
+# NUMBA_CACHE_DIR: Set writable cache directory for numba JIT compilation
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONFAULTHANDLER=1
+    PYTHONFAULTHANDLER=1 \
+    LIBROSA_CACHE_DIR="" \
+    LIBROSA_CACHE_LEVEL="0" \
+    NUMBA_CACHE_DIR="/tmp/numba_cache"
 
 # Install runtime system dependencies
 RUN apt-get update && apt-get install -y \

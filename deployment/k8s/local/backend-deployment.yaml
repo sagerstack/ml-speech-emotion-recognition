@@ -57,6 +57,14 @@ spec:
           value: "30"
         - name: PROMETHEUS_ENABLED
           value: "true"
+        # Librosa/Numba caching configuration
+        # Disable librosa caching to prevent "cannot cache function" errors
+        - name: LIBROSA_CACHE_DIR
+          value: ""
+        - name: LIBROSA_CACHE_LEVEL
+          value: "0"
+        - name: NUMBA_CACHE_DIR
+          value: "/tmp/numba_cache"
         # OpenTelemetry Configuration for distributed tracing
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: "tempo.monitoring.svc.cluster.local:4317"

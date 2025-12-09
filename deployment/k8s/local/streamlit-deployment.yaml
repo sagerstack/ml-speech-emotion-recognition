@@ -48,6 +48,8 @@ spec:
           value: "none"
         - name: STREAMLIT_RUNNER_MAGIC_ENABLED
           value: "false"
+        - name: NUMBA_DISABLE_JIT
+          value: "1"
         resources:
           requests:
             memory: "512Mi"
