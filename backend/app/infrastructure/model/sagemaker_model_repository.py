@@ -1,5 +1,6 @@
 """SageMaker-based model repository implementation."""
 
+import re
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -160,6 +161,36 @@ class SageMakerModelRepository(ModelRepository):
                 f"Failed to create SageMaker adapter for {str(version)}: {str(e)}"
             )
 
+    def _extract_version_from_endpoint_config(self, endpoint_config_name: str) -> ModelVersion:
+        """Extract version from endpoint config name.
+
+        Args:
+            endpoint_config_name: Endpoint config name (e.g., "ml-emotion-v6-config")
+
+        Returns:
+            ModelVersion extracted from config name
+
+        Raises:
+            ValueError: If version cannot be extracted from config name
+        """
+        # Pattern: ml-emotion-{version}-config
+        match = re.search(r'ml-emotion-(v\d+)-config', endpoint_config_name)
+        if match:
+            version_str = match.group(1)
+            self.logger.debug(
+                "Extracted version from endpoint config",
+                endpoint_config_name=endpoint_config_name,
+                version=version_str,
+            )
+            return ModelVersion.from_string(version_str)
+
+        # If pattern doesn't match, log warning and return default
+        self.logger.warning(
+            "Could not extract version from endpoint config name, using default v1",
+            endpoint_config_name=endpoint_config_name,
+        )
+        return ModelVersion.from_string("v1")
+
     def get_model_info(self, version: ModelVersion) -> ModelInfo | None:
         """Get metadata about the SageMaker endpoint.
 
@@ -181,6 +212,10 @@ class SageMakerModelRepository(ModelRepository):
             endpoint_status = response.get("EndpointStatus")
             creation_time = response.get("CreationTime")
             endpoint_arn = response.get("EndpointArn")
+            endpoint_config_name = response.get("EndpointConfigName", "")
+
+            # Extract version from endpoint config name
+            extracted_version = self._extract_version_from_endpoint_config(endpoint_config_name)
 
             # Get endpoint tags for additional metadata
             tags = {}
@@ -202,7 +237,7 @@ class SageMakerModelRepository(ModelRepository):
             num_classes = int(tags.get("num_classes", 6))
 
             return ModelInfo(
-                version=version,
+                version=extracted_version,
                 model_type=model_type,
                 feature_dimension=feature_dimension,
                 model_name=model_name,
@@ -245,7 +280,7 @@ class SageMakerModelRepository(ModelRepository):
         """List available model versions.
 
         For SageMaker deployment with single endpoint, this returns a single
-        version based on endpoint tags or a default version.
+        version dynamically extracted from the endpoint configuration name.
 
         In a more advanced setup, you could:
         - List all endpoints with a specific tag
@@ -253,18 +288,51 @@ class SageMakerModelRepository(ModelRepository):
         - Query endpoint variants for multi-model deployment
 
         Returns:
-            List containing single version (endpoint's version)
+            List containing single version (endpoint's version extracted from config)
         """
-        # Get endpoint metadata to determine version
-        model_info = self.get_model_info(ModelVersion.from_string("v5"))
+        try:
+            # Describe endpoint to get config name
+            response = self.sagemaker_client.describe_endpoint(
+                EndpointName=self.endpoint_name
+            )
 
-        if model_info:
-            return [model_info.version]
-        else:
-            # Endpoint not available
-            self.logger.warning(
-                "No SageMaker endpoint available",
+            endpoint_config_name = response.get("EndpointConfigName", "")
+            endpoint_status = response.get("EndpointStatus")
+
+            # Only return version if endpoint is InService
+            if endpoint_status != "InService":
+                self.logger.warning(
+                    "SageMaker endpoint not in service",
+                    endpoint_name=self.endpoint_name,
+                    status=endpoint_status,
+                )
+                return []
+
+            # Extract version from endpoint config name
+            extracted_version = self._extract_version_from_endpoint_config(endpoint_config_name)
+
+            self.logger.info(
+                "Found available model version",
+                version=str(extracted_version),
                 endpoint_name=self.endpoint_name,
+            )
+
+            return [extracted_version]
+
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
+            self.logger.warning(
+                "Failed to list available versions",
+                endpoint_name=self.endpoint_name,
+                error_code=error_code,
+            )
+            return []
+
+        except Exception as e:
+            self.logger.error(
+                "Unexpected error listing available versions",
+                endpoint_name=self.endpoint_name,
+                error=str(e),
             )
             return []
 
