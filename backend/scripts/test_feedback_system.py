@@ -8,19 +8,25 @@ This script:
 4. Generates monitoring snapshots for the Evidently dashboard
 
 Usage:
-    poetry run python scripts/test_feedback_system.py
+    poetry run python scripts/test_feedback_system.py --env local
+    poetry run python scripts/test_feedback_system.py --env sagemaker
 """
 
+import argparse
 import glob
 import os
 import random
+import sys
 import time
 from pathlib import Path
 
 import requests
 
-# Configuration
-API_BASE_URL = "http://localhost:8000"
+# Environment base URL mapping
+ENV_BASE_URLS = {
+    "local": "http://localhost:8000",
+    "sagemaker": "https://sagerstack.com/ml-ser",
+}
 RAVDESS_DATA_DIR = Path(__file__).parent.parent.parent / "data" / "ravdess-speech-audio"
 NUM_PREDICTIONS = 10
 
@@ -82,17 +88,24 @@ def find_ravdess_files(num_files: int) -> list[tuple[Path, str]]:
     return compatible_files
 
 
-def post_inference(file_path: Path) -> tuple[str, str, str]:
+def post_inference(
+    file_path: Path, api_base_url: str, session: requests.Session
+) -> tuple[str, str, str]:
     """Post inference request to API using v2 endpoint.
+
+    Args:
+        file_path: Path to the audio file
+        api_base_url: Base URL for the API
+        session: requests.Session for cookie persistence (required for sticky sessions)
 
     Returns:
         Tuple of (prediction_id, predicted_emotion, filename)
     """
-    url = f"{API_BASE_URL}/v2/inference"
+    url = f"{api_base_url}/v2/inference/?audio_features=false"
 
     with open(file_path, "rb") as f:
         files = {"file": (file_path.name, f, "audio/wav")}
-        response = requests.post(url, files=files, timeout=30)
+        response = session.post(url, files=files, timeout=30)
 
     response.raise_for_status()
     data = response.json()
@@ -108,24 +121,38 @@ def post_inference(file_path: Path) -> tuple[str, str, str]:
     return prediction_id, predicted_emotion, file_path.name
 
 
-def post_feedback(prediction_id: str, actual_emotion: str):
-    """Post feedback with actual emotion to monitoring endpoint."""
-    url = f"{API_BASE_URL}/v1/monitoring/feedback/{prediction_id}"
+def post_feedback(
+    prediction_id: str, actual_emotion: str, api_base_url: str, session: requests.Session
+):
+    """Post feedback with actual emotion to monitoring endpoint.
+
+    Args:
+        prediction_id: The prediction ID to submit feedback for
+        actual_emotion: The ground truth emotion label
+        api_base_url: Base URL for the API
+        session: requests.Session for cookie persistence (required for sticky sessions)
+    """
+    url = f"{api_base_url}/v1/monitoring/feedback/{prediction_id}"
     payload = {"actual_emotion": actual_emotion}
 
-    response = requests.post(url, json=payload, timeout=10)
+    response = session.post(url, json=payload, timeout=10)
     response.raise_for_status()
 
     print(f"✓ Feedback submitted: {actual_emotion}")
     return response.json()
 
 
-def generate_monitoring_report():
-    """Trigger manual report generation after all feedback is submitted."""
-    url = f"{API_BASE_URL}/v1/monitoring/generate"
+def generate_monitoring_report(api_base_url: str, session: requests.Session):
+    """Trigger manual report generation after all feedback is submitted.
+
+    Args:
+        api_base_url: Base URL for the API
+        session: requests.Session for cookie persistence (required for sticky sessions)
+    """
+    url = f"{api_base_url}/v1/monitoring/generate"
 
     print("\n📊 Generating monitoring report...")
-    response = requests.post(url, timeout=60)
+    response = session.post(url, timeout=60)
     response.raise_for_status()
 
     data = response.json()
@@ -138,11 +165,42 @@ def generate_monitoring_report():
     return data
 
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Test inference + monitoring using RAVDESS dataset and v2 API",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  poetry run python scripts/test_feedback_system.py --env local
+  poetry run python scripts/test_feedback_system.py --env sagemaker
+        """,
+    )
+    parser.add_argument(
+        "--env",
+        required=True,
+        choices=["local", "sagemaker"],
+        help="Environment to test against (local or sagemaker)",
+    )
+    return parser.parse_args()
+
+
 def main():
     """Run the test workflow."""
+    # Parse CLI arguments
+    args = parse_args()
+    api_base_url = ENV_BASE_URLS[args.env]
+
+    # Create a session to persist cookies for ALB sticky sessions
+    # This ensures inference and feedback requests go to the same backend pod
+    session = requests.Session()
+
     print("=" * 80)
     print("Testing Inference + Feedback System with RAVDESS Data")
     print("=" * 80)
+    print(f"\nEnvironment: {args.env}")
+    print(f"API Base URL: {api_base_url}")
+    print("Session: Using persistent session for sticky sessions")
 
     # Find RAVDESS files
     print(f"\n📂 Finding {NUM_PREDICTIONS} RAVDESS audio files...")
@@ -161,7 +219,9 @@ def main():
 
         try:
             # Post inference (monitoring is automatic with v2 endpoint)
-            prediction_id, predicted_emotion, filename = post_inference(file_path)
+            prediction_id, predicted_emotion, filename = post_inference(
+                file_path, api_base_url, session
+            )
 
             # Track results
             correct = predicted_emotion == actual_emotion
@@ -178,7 +238,7 @@ def main():
 
             # Send feedback with ground truth to monitoring
             try:
-                post_feedback(prediction_id, actual_emotion)
+                post_feedback(prediction_id, actual_emotion, api_base_url, session)
             except Exception as fb_exc:
                 print(f"  ⚠️ Feedback submission failed: {fb_exc}")
 
@@ -213,14 +273,18 @@ def main():
 
         # Generate monitoring report after all feedback is submitted
         try:
-            generate_monitoring_report()
+            generate_monitoring_report(api_base_url, session)
         except Exception as e:
             print(f"❌ Failed to generate report: {e}")
 
         print(f"\n💡 Next Steps:")
         print(f"  1. Check monitoring_reports/ directory for new report")
-        print(f"  2. Open Evidently dashboard at http://localhost:8080")
-        print(f"  3. Refresh browser (F5) to see updated metrics")
+        if args.env == "local":
+            print(f"  2. Open Evidently dashboard at http://localhost:8080")
+            print(f"  3. Refresh browser (F5) to see updated metrics")
+        else:
+            print(f"  2. Check {api_base_url}/v1/monitoring/dashboard for metrics")
+            print(f"  3. Refresh to see updated monitoring data")
     else:
         print("\n❌ No successful predictions")
 
