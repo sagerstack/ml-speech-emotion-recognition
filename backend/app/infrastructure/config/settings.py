@@ -64,7 +64,9 @@ class Settings(BaseSettings):
     prometheus_enabled: bool = True
     metrics_port: int = 9090
     enable_model_monitoring: bool = True  # Enable/disable model monitoring (prediction logging)
-    monitoring_reference_path: str | None = None
+    monitoring_reference_path: str | None = None  # Local path for dev
+    monitoring_reference_s3_bucket: str | None = None  # S3 bucket for prod (used when use_sagemaker=true)
+    monitoring_reference_s3_key: str = "monitoring/reference_dataset.csv"  # S3 key for reference dataset
     monitoring_reports_dir: str = "monitoring_reports"
     monitoring_buffer_max_records: int = 500
     monitoring_auto_report_threshold: int = 100

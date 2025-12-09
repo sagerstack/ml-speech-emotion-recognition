@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import boto3
+from botocore.exceptions import ClientError
 import requests
 
 import pandas as pd
@@ -121,6 +123,9 @@ class EvidentlyService:
         dashboard_url: Optional[str] = None,
         workspace_path: Optional[str] = None,
         project_name: str = "speech_emotion_recognition",
+        s3_bucket: Optional[str] = None,
+        s3_key: Optional[str] = None,
+        use_s3: bool = False,
     ):
         self.buffer = buffer
         self.reports_dir = Path(reports_dir)
@@ -128,9 +133,36 @@ class EvidentlyService:
         self.dashboard_url = dashboard_url
         self.project_name = project_name
         self.report_history: List[MonitoringReportInfo] = []
-        self.reference_data = self._load_reference_data(reference_data_path)
+
+        # S3 configuration for lazy loading in production
+        self.s3_bucket = s3_bucket
+        self.s3_key = s3_key
+        self.use_s3 = use_s3
+        self._reference_data_path = reference_data_path
+        self._reference_data: Optional[pd.DataFrame] = None  # Lazy loaded
+        self._reference_data_loaded = False
+
+        # Load reference data eagerly only for local dev (not S3)
+        if not use_s3:
+            self._reference_data = self._load_reference_data_local(reference_data_path)
+            self._reference_data_loaded = True
+
         self.workspace = self._init_workspace(workspace_path) if workspace_path else None
         self.project = self._get_or_create_project() if self.workspace else None
+
+    @property
+    def reference_data(self) -> Optional[pd.DataFrame]:
+        """Lazy load reference data on first access."""
+        if not self._reference_data_loaded:
+            self._reference_data = self._load_reference_data()
+            self._reference_data_loaded = True
+        return self._reference_data
+
+    @reference_data.setter
+    def reference_data(self, value: Optional[pd.DataFrame]) -> None:
+        """Allow setting reference data directly (for testing)."""
+        self._reference_data = value
+        self._reference_data_loaded = True
 
     def _init_workspace(self, workspace_path: str) -> Optional[Workspace]:
         """Initialize Evidently workspace."""
@@ -408,7 +440,18 @@ class EvidentlyService:
             logger.warning("Failed to get/create project", error=str(exc))
             return None
 
-    def _load_reference_data(self, path: Optional[str]) -> Optional[pd.DataFrame]:
+    def _load_reference_data(self) -> Optional[pd.DataFrame]:
+        """Load reference data from S3 (production) or local path (development).
+
+        Uses lazy loading - only downloads from S3 on first access.
+        Caches to /tmp for subsequent requests within the same container lifecycle.
+        """
+        if self.use_s3:
+            return self._load_reference_data_s3()
+        return self._load_reference_data_local(self._reference_data_path)
+
+    def _load_reference_data_local(self, path: Optional[str]) -> Optional[pd.DataFrame]:
+        """Load reference dataset from local filesystem."""
         if not path:
             logger.warning("Reference dataset path not configured; drift reports will be limited")
             return None
@@ -420,10 +463,74 @@ class EvidentlyService:
 
         try:
             df = pd.read_csv(ref_path)
-            logger.info("Loaded reference dataset", rows=len(df), path=str(ref_path))
+            logger.info("Loaded reference dataset from local path", rows=len(df), path=str(ref_path))
             return df
         except Exception as exc:  # pragma: no cover - defensive
             logger.error("Failed to load reference dataset", error=str(exc))
+            return None
+
+    def _load_reference_data_s3(self) -> Optional[pd.DataFrame]:
+        """Load reference dataset from S3 with local caching.
+
+        Downloads from S3 on first access and caches to /tmp.
+        Subsequent calls use the cached file.
+        """
+        if not self.s3_bucket or not self.s3_key:
+            logger.warning(
+                "S3 reference dataset not configured",
+                bucket=self.s3_bucket,
+                key=self.s3_key,
+            )
+            return None
+
+        # Check local cache first
+        cache_path = Path("/tmp/reference_dataset_cache.csv")
+        if cache_path.exists():
+            try:
+                df = pd.read_csv(cache_path)
+                logger.info(
+                    "Loaded reference dataset from cache",
+                    rows=len(df),
+                    cache_path=str(cache_path),
+                )
+                return df
+            except Exception as exc:
+                logger.warning("Failed to load cached reference dataset, will re-download", error=str(exc))
+
+        # Download from S3
+        try:
+            logger.info(
+                "Downloading reference dataset from S3",
+                bucket=self.s3_bucket,
+                key=self.s3_key,
+            )
+            s3_client = boto3.client("s3")
+            s3_client.download_file(self.s3_bucket, self.s3_key, str(cache_path))
+
+            df = pd.read_csv(cache_path)
+            logger.info(
+                "Loaded reference dataset from S3",
+                rows=len(df),
+                bucket=self.s3_bucket,
+                key=self.s3_key,
+            )
+            return df
+
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "Unknown")
+            logger.error(
+                "Failed to download reference dataset from S3",
+                bucket=self.s3_bucket,
+                key=self.s3_key,
+                error_code=error_code,
+                error=str(exc),
+            )
+            return None
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.error(
+                "Failed to load reference dataset from S3",
+                error=str(exc),
+            )
             return None
 
     def log_prediction(self, record: PredictionRecord) -> int:
@@ -811,6 +918,10 @@ def get_monitoring_service() -> Optional[EvidentlyService]:
 
     if _monitoring_service is None:
         buffer = get_prediction_buffer()
+
+        # Determine S3 bucket: use explicit setting or derive from s3_bucket_name
+        s3_bucket = settings.monitoring_reference_s3_bucket or settings.s3_bucket_name
+
         _monitoring_service = EvidentlyService(
             buffer=buffer,
             reference_data_path=settings.monitoring_reference_path,
@@ -818,5 +929,8 @@ def get_monitoring_service() -> Optional[EvidentlyService]:
             dashboard_url=settings.evidently_dashboard_url,
             workspace_path=settings.evidently_workspace_path,
             project_name=settings.evidently_project_name,
+            s3_bucket=s3_bucket,
+            s3_key=settings.monitoring_reference_s3_key,
+            use_s3=settings.use_sagemaker,  # Use S3 when in SageMaker/production mode
         )
     return _monitoring_service
