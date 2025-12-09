@@ -3,6 +3,7 @@ from pathlib import Path
 import io
 import logging
 import os
+import time
 
 import librosa
 import plotly.graph_objects as go
@@ -390,8 +391,22 @@ def stage_audio_recording() -> AnalysisResult | None:
 
             try:
                 audio_bytes = _load_audio_from_upload(audio_source)
-                with st.spinner("Extracting audio features..."):
+                # Check if we're in mock mode for simulated delay
+                use_real_backend, _, force_mock = get_backend_status()
+                is_mock_mode = not use_real_backend or force_mock
+
+                with st.status("Analyzing audio...", expanded=True) as status:
+                    status.write("Loading audio file...")
+                    if is_mock_mode:
+                        time.sleep(0.5)  # Simulated delay for mock mode
+
+                    status.write("Extracting audio features...")
                     features = _generate_local_features(audio_bytes, label, engine)
+
+                    if is_mock_mode:
+                        time.sleep(1.5)  # Additional delay to simulate processing
+
+                    status.update(label="Audio analysis complete!", state="complete", expanded=False)
 
                 _store_audio_state(audio_bytes, label, engine, features)
                 st.session_state[STATUS_KEY] = f"🔬 {label} analyzed locally. Ready for inference."
@@ -471,6 +486,18 @@ def stage_feature_analysis(feature_summary: dict | None):
                     type="primary",
                     use_container_width=True,
                 )
+            # Placeholder for prediction status - displayed right below the button
+            prediction_status_placeholder = st.empty()
+            # Placeholder for prediction errors - displayed right below the status
+            prediction_error_placeholder = st.empty()
+            # Display any existing prediction error from session state
+            if "prediction_error" in st.session_state:
+                prediction_error_placeholder.error(
+                    f"Failed to run inference: {st.session_state['prediction_error']}",
+                    icon="❌"
+                )
+                if SHOW_DEBUG_INFO:
+                    st.expander("Error Details").write(st.session_state["prediction_error"])
             st.markdown("---")
 
         col1, col2 = st.columns([1, 1])
@@ -637,8 +664,26 @@ def stage_feature_analysis(feature_summary: dict | None):
             try:
                 file_obj = io.BytesIO(audio_bytes)
                 file_obj.name = filename
-                with st.spinner("Running inference on SageMaker..."):
+
+                # Check if we're in mock mode for simulated delay
+                use_real_backend, _, force_mock = get_backend_status()
+                is_mock_mode = not use_real_backend or force_mock
+
+                with prediction_status_placeholder.status("Running emotion prediction...", expanded=True) as status:
+                    status.write("Preparing audio for inference...")
+                    if is_mock_mode:
+                        time.sleep(0.5)  # Simulated delay for mock mode
+
+                    status.write("Sending to SageMaker endpoint...")
+                    if is_mock_mode:
+                        time.sleep(1.0)  # Simulated network delay
+
                     result = backend.analyze(file_obj, engine=engine)
+
+                    if is_mock_mode:
+                        time.sleep(0.5)  # Simulated processing completion
+
+                    status.update(label="Prediction complete!", state="complete", expanded=False)
 
                 st.session_state[PAGE_KEY] = result
 
@@ -662,12 +707,14 @@ def stage_feature_analysis(feature_summary: dict | None):
                 st.session_state["codex_iter5_history"] = history[:25]
 
                 st.session_state[TAB_INDEX_KEY] = 2
+                # Clear any previous prediction error on success
+                st.session_state.pop("prediction_error", None)
                 st.success(st.session_state[STATUS_KEY])
                 st.rerun()
             except Exception as e:
-                st.error(f"Failed to run inference: {str(e)}", icon="❌")
-                if SHOW_DEBUG_INFO:
-                    st.expander("Error Details").write(str(e))
+                # Store error in session state - will be displayed in placeholder below button
+                st.session_state["prediction_error"] = str(e)
+                st.rerun()
 
 
 def get_emotion_icon(emotion: str) -> str:
@@ -938,25 +985,23 @@ def _probability_table(probabilities: dict[str, float], highlight_top: bool = Tr
 
 
 def _submit_feedback(prediction_id: str, actual_emotion: str) -> tuple[bool, str]:
-    """Send feedback to backend monitoring endpoint."""
+    """Send feedback to backend monitoring endpoint.
+
+    Uses APIClient session to maintain sticky session affinity with the backend
+    pod that holds the prediction in its buffer.
+    """
     try:
-        resp = requests.post(
-            f"{ML_APP_BASE_URL}/v1/monitoring/feedback/{prediction_id}",
-            json={"actual_emotion": actual_emotion},
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            return True, "Thanks for your feedback!"
-        elif resp.status_code == 404:
-            # Get detailed error from API response
+        client = get_api_client()
+        client.submit_feedback(prediction_id, actual_emotion)
+        return True, "Thanks for your feedback!"
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
             try:
-                detail = resp.json().get("detail", "Prediction not found in buffer")
+                detail = exc.response.json().get("detail", "Prediction not found in buffer")
             except Exception:
                 detail = "Prediction not found in buffer (may have been evicted)"
             return False, detail
-        else:
-            resp.raise_for_status()
-            return True, "Feedback submitted"
+        return False, str(exc)
     except requests.RequestException as exc:
         return False, str(exc)
 
@@ -1021,6 +1066,7 @@ def _reset_workflow_state():
         "iter6-upload",
         "iter6-record",
         "audio_input_mode",
+        "prediction_error",
     ]
     for k in keys_to_clear:
         st.session_state.pop(k, None)
@@ -1034,7 +1080,8 @@ def _reset_workflow_state():
     st.session_state.pop("iter5-tabs", None)
     # Reset to Step 1
     st.session_state[TAB_INDEX_KEY] = 0
-    # Note: No st.rerun() needed - Streamlit auto-reruns after callbacks
+    # Force a complete page refresh to reset UI state
+    st.rerun()
 
 
 def render_variant_compact_cards(payload: dict):

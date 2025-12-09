@@ -433,6 +433,39 @@ class SpeechEmotionAPIClient:
             logger.error(f"Unexpected monitoring history error: {exc}")
             raise RequestException("Unable to fetch monitoring metrics history")
 
+    def submit_feedback(self, prediction_id: str, actual_emotion: str) -> Dict[str, Any]:
+        """
+        Submit feedback for a prediction to the monitoring endpoint.
+
+        Uses the session to maintain sticky session affinity with the backend pod
+        that holds the prediction in its buffer.
+
+        Args:
+            prediction_id: The prediction ID to submit feedback for
+            actual_emotion: The actual emotion label
+
+        Returns:
+            Dictionary with feedback submission result
+
+        Raises:
+            RequestException: If the API request fails
+        """
+        try:
+            logger.info(f"Submitting feedback for prediction {prediction_id}")
+            response = self.session.post(
+                f"{self.base_url}/v1/monitoring/feedback/{prediction_id}",
+                json={"actual_emotion": actual_emotion},
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+        except RequestException as exc:
+            logger.error(f"Feedback submission failed: {exc}")
+            raise
+        except Exception as exc:
+            logger.error(f"Unexpected feedback error: {exc}")
+            raise RequestException(f"Unable to submit feedback: {exc}")
+
     def _handle_error_response(self, response: requests.Response) -> None:
         """Handle error responses from the API"""
         try:

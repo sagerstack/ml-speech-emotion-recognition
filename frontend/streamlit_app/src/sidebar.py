@@ -79,7 +79,7 @@ def render_sidebar():
 
         # Model Performance section
         st.markdown("<p style='font-size: 0.85rem; margin: 0 0 0.75rem 0;'>🧭 <span style='text-decoration: underline;'>Model Performance</span></p>", unsafe_allow_html=True)
-        st.page_link(str(MODEL_PERFORMANCE_PAGE), label="📈 Drift Monitor")
+        st.page_link(str(MODEL_PERFORMANCE_PAGE), label="📈 Drift Monitoring")
 
         st.divider()
 
