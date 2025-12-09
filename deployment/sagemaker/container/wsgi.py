@@ -4,17 +4,18 @@ WSGI Application for SageMaker Inference
 This module provides the Flask application that handles:
 - /ping: Health check endpoint
 - /invocations: Inference endpoint
+
+It delegates to inference.py from the model's code/ directory for
+model-specific loading and prediction logic.
 """
 
 import os
 import sys
 import json
-import pickle
 import logging
 import traceback
 
 import flask
-import numpy as np
 
 # Configure logging
 logging.basicConfig(
@@ -26,50 +27,39 @@ logger = logging.getLogger(__name__)
 # Model directory where SageMaker mounts the model artifacts
 MODEL_DIR = os.environ.get('MODEL_DIR', '/opt/ml/model')
 
+# Add code directory to path for inference.py and custom classes
+code_dir = os.path.join(MODEL_DIR, 'code')
+if os.path.exists(code_dir) and code_dir not in sys.path:
+    sys.path.insert(0, code_dir)
+    logger.info(f"Added {code_dir} to Python path")
+
+# Import inference functions from the model's code directory
+# These are model-version-specific and packaged with the model tarball
+try:
+    from inference import model_fn, input_fn, predict_fn, output_fn
+    logger.info("Successfully imported inference functions from model code directory")
+except ImportError as e:
+    logger.error(f"Failed to import inference.py from {code_dir}: {e}")
+    raise
+
 # Flask app
 app = flask.Flask(__name__)
 
-# Global model variable
-model = None
+# Global model variable (cached after first load)
+_model = None
 
 
-def load_model():
-    """Load the model from the model directory."""
-    global model
+def get_model():
+    """Load and cache the model using inference.py's model_fn."""
+    global _model
 
-    if model is not None:
-        return model
+    if _model is not None:
+        return _model
 
-    model_path = os.path.join(MODEL_DIR, 'model.pkl')
-
-    # Add code directory to path for custom classes
-    code_dir = os.path.join(MODEL_DIR, 'code')
-    if os.path.exists(code_dir) and code_dir not in sys.path:
-        sys.path.insert(0, code_dir)
-        logger.info(f"Added {code_dir} to Python path")
-
-    # Import custom classes and inject into __main__ for pickle compatibility
-    # The model was pickled with UltraEnsembleModel in __main__, so we need
-    # to make it available there for unpickling to work
-    try:
-        from ultra_ensemble import UltraEnsembleModel
-        import __main__
-        __main__.UltraEnsembleModel = UltraEnsembleModel
-        logger.info("Imported and injected UltraEnsembleModel into __main__")
-    except ImportError:
-        logger.warning("UltraEnsembleModel not found in code directory")
-
-    logger.info(f"Loading model from {model_path}")
-
-    try:
-        with open(model_path, 'rb') as f:
-            model = pickle.load(f)
-        logger.info("Model loaded successfully")
-        return model
-    except Exception as e:
-        logger.error(f"Failed to load model: {e}")
-        logger.error(traceback.format_exc())
-        raise
+    logger.info(f"Loading model from {MODEL_DIR}")
+    _model = model_fn(MODEL_DIR)
+    logger.info("Model loaded and cached successfully")
+    return _model
 
 
 @app.route('/ping', methods=['GET'])
@@ -77,7 +67,7 @@ def ping():
     """Health check endpoint."""
     try:
         # Try to load model to verify it works
-        load_model()
+        get_model()
         status = 200
         response = {'status': 'healthy'}
     except Exception as e:
@@ -94,70 +84,40 @@ def ping():
 
 @app.route('/invocations', methods=['POST'])
 def invocations():
-    """Inference endpoint."""
+    """Inference endpoint using inference.py functions."""
     try:
-        # Load model
-        model = load_model()
+        # Get model
+        model = get_model()
 
-        # Get input data
+        # Get request data
         content_type = flask.request.content_type or 'application/json'
+        request_body = flask.request.get_data(as_text=True)
 
-        if 'application/json' in content_type:
-            input_data = flask.request.get_json()
-        elif 'application/x-npy' in content_type:
-            # Handle numpy array input
-            input_data = np.load(flask.request.stream)
-        else:
-            return flask.Response(
-                response=json.dumps({'error': f'Unsupported content type: {content_type}'}),
-                status=415,
-                mimetype='application/json'
-            )
+        # Use inference.py functions for model-specific logic
+        # 1. Parse input
+        input_data = input_fn(request_body, content_type)
 
-        # Extract features from input
-        if isinstance(input_data, dict):
-            if 'features' in input_data:
-                features = np.array(input_data['features'])
-            elif 'instances' in input_data:
-                features = np.array(input_data['instances'])
-            else:
-                features = np.array(input_data.get('data', input_data))
-        else:
-            features = np.array(input_data)
+        # 2. Run prediction
+        prediction_result = predict_fn(input_data, model)
 
-        # Ensure 2D array
-        if features.ndim == 1:
-            features = features.reshape(1, -1)
+        # 3. Format output
+        accept = flask.request.headers.get('Accept', 'application/json')
+        response_body = output_fn(prediction_result, accept)
 
-        logger.info(f"Received input with shape: {features.shape}")
-
-        # Make prediction
-        if hasattr(model, 'predict_proba'):
-            probabilities = model.predict_proba(features)
-            predictions = model.predict(features)
-
-            # Get class labels if available
-            if hasattr(model, 'classes_'):
-                classes = model.classes_.tolist()
-            else:
-                classes = list(range(probabilities.shape[1]))
-
-            result = {
-                'predictions': predictions.tolist(),
-                'probabilities': probabilities.tolist(),
-                'classes': classes
-            }
-        else:
-            predictions = model.predict(features)
-            result = {
-                'predictions': predictions.tolist()
-            }
-
-        logger.info(f"Prediction successful: {result['predictions']}")
+        logger.info(f"Prediction successful")
 
         return flask.Response(
-            response=json.dumps(result),
+            response=response_body,
             status=200,
+            mimetype='application/json'
+        )
+
+    except ValueError as e:
+        # Input validation errors
+        logger.error(f"Input error: {e}")
+        return flask.Response(
+            response=json.dumps({'error': str(e)}),
+            status=400,
             mimetype='application/json'
         )
 
