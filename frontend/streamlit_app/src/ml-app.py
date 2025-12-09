@@ -16,7 +16,7 @@ import requests
 from feature_charts import heatmap_chart, probability_bar, waveform_chart, mfcc_equalizer_chart, delta_mfcc_chart, delta2_mfcc_chart, mel_spectrogram_chart, prosodic_pitch_chart
 from mock_inference import AnalysisResult
 from real_inference import real_lab_backend, mock_lab_backend, get_backend_health
-from api_client import ML_APP_BASE_URL
+from api_client import ML_APP_BASE_URL, get_api_client
 from sidebar import render_sidebar, get_backend_status, get_backend_health_cached, ENABLE_MOCK_MODE, MODEL_PERFORMANCE_PAGE
 
 # Configure logging
