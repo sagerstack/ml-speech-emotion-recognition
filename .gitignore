@@ -260,3 +260,7 @@ override.tf.json
 terraform.tfvars.backup
 .DS_Store
 **/.DS_Store
+
+# Generated infrastructure configuration files
+scripts/*-config.txt
+scripts/cloudfront-setup-config.txt
