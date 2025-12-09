@@ -50,14 +50,6 @@ spec:
           value: "false"
         - name: NUMBA_DISABLE_JIT
           value: "1"
-        # Disable librosa's joblib cache to avoid filesystem write issues
-        - name: LIBROSA_CACHE_DIR
-          value: ""
-        - name: LIBROSA_CACHE_LEVEL
-          value: "0"
-        # Set joblib temp folder to writable location for memory-mapped operations
-        - name: JOBLIB_TEMP_FOLDER
-          value: "/tmp"
         resources:
           requests:
             memory: "512Mi"
