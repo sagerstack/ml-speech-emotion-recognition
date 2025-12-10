@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terraform Deployment Lifecycle</title>
+  <style>
+    :root {
+      --bg: #cfe9ff;
+      --panel: #e7f3ff;
+      --accent: #2d9cfb;
+      --accent-2: #2fc48d;
+      --text: #0f1f3a;
+      --muted: #4f6789;
+      --border: #b7d2f5;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: radial-gradient(circle at 20% 20%, rgba(45,156,251,0.25), transparent 35%),
+                  radial-gradient(circle at 80% 10%, rgba(47,196,141,0.18), transparent 30%),
+                  linear-gradient(135deg, #d7edff 0%, #bfe4ff 100%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 28px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 1180px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.02) inset;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 6px;
+      font-size: 26px;
+      letter-spacing: 0.2px;
+    }
+    .subtitle {
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+    }
+    .step {
+      background: linear-gradient(180deg, rgba(72,179,255,0.06), rgba(255,255,255,0.02));
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    .step::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.04);
+      pointer-events: none;
+    }
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .badge {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: rgba(72,179,255,0.18);
+      color: var(--accent);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      border: 1px solid rgba(72,179,255,0.35);
+      box-shadow: 0 0 0 6px rgba(72,179,255,0.06);
+    }
+    .title {
+      font-weight: 700;
+      font-size: 16px;
+    }
+    .desc {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+      margin-bottom: 10px;
+    }
+    .command {
+      background: #0b162d;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 12px;
+      color: var(--text);
+      box-shadow: 0 10px 25px rgba(0,0,0,0.25);
+    }
+    .note {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .note strong { color: var(--accent-2); }
+    @media (max-width: 640px) {
+      body { padding: 14px; }
+      h1 { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Terraform Deployment Lifecycle</h1>
+    <div class="subtitle">Core workflow for the EKS + ECR infrastructure in <code>deployment/terraform</code></div>
+    <div class="timeline">
+      <div class="step">
+        <div class="step-header">
+          <div class="badge">01</div>
+          <div class="title">Init</div>
+        </div>
+        <div class="desc">
+          Download providers/modules and set up the working directory before any plans or applies.
+        </div>
+        <div class="command">terraform init</div>
+        <div class="note"><strong>Tip:</strong> Ensure AWS credentials/profile are loaded.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-header">
+          <div class="badge">02</div>
+          <div class="title">Plan</div>
+        </div>
+        <div class="desc">
+          Create an execution plan against your state to review changes and costs before applying.
+        </div>
+        <div class="command">terraform plan -var-file=terraform.tfvars</div>
+        <div class="note"><strong>Review:</strong> Validate EKS, VPC, IAM, and ECR diffs.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-header">
+          <div class="badge">03</div>
+          <div class="title">Apply</div>
+        </div>
+        <div class="desc">
+          Provision or update AWS resources (VPC, EKS, IAM/OIDC, ECR) after confirming the plan.
+        </div>
+        <div class="command">terraform apply -var-file=terraform.tfvars</div>
+        <div class="note"><strong>Outputs:</strong> Cluster name, ECR repos, GitHub OIDC role ARN.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-header">
+          <div class="badge">04</div>
+          <div class="title">Destroy</div>
+        </div>
+        <div class="desc">
+          Tear down the stack. Run cleanup scripts first to remove load balancers and k8s resources.
+        </div>
+        <div class="command">./destroy.sh</div>
+        <div class="note"><strong>Order:</strong> Delete k8s services → wait → <code>terraform destroy</code>.</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

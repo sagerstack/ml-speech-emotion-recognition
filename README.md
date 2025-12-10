@@ -1,5 +1,9 @@
 # Machine Learning Speech Emotion Recognition
 
+## GitHub Repository
+Please clone the project repository at 
+git clone https://github.com/sagerstack/ml-speech-emotion-recognition.git  
+
 ## Project Overview
 End-to-end speech emotion recognition system with:
 - Jupyter notebooks for model development and experimentation
