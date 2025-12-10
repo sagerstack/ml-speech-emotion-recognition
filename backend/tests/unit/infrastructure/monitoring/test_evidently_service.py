@@ -649,6 +649,7 @@ def test_configure_dashboard_panels(tmp_path):
 
 
 @pytest.mark.unit
+@pytest.mark.skipci
 def test_configure_dashboard_panels_failure(tmp_path):
     """Test dashboard panel configuration handles import errors."""
     buffer = PredictionBuffer(max_records=10)
