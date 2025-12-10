@@ -67,7 +67,7 @@ cd ml-speech-emotion-recognition
 
 ## Data Prerequisites (CRITICAL)
 
-The following files are **not included** in the repository (gitignored). Please refer to the project submission details on how to download these files.
+The following files are **not included** in the repository (gitignored). Please refer to the project README.md on how to download these files.
 
 ### 1. ML Model (Required)
 Place the model file at:

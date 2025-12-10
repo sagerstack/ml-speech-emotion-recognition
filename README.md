@@ -22,26 +22,22 @@ End-to-end speech emotion recognition system with:
 - Jupyter notebooks for model development and experimentation
 - Deployment stacks for Docker Compose, Kubernetes, and AWS SageMaker
 
-## Repository Layout
-- `notebooks/`: Model experimentation (`PART A - Baseline Models.ipynb`, `PART B - Systematic Improvements.ipynb`)
-- `backend/`: FastAPI service, monitoring, and tests (see `backend/README.md`)
-- `frontend/streamlit_app/`: Streamlit UI for inference and monitoring
-- `deployment/`: Docker, K8s manifests, monitoring stack, and SageMaker container
-- `sagemaker/`: SageMaker deployment notebooks, scripts, and docs
-- `scripts/`: Utility scripts (S3 upload, local deploy, terraform helpers)
-- `docs/` and `specs/`: Architecture, operations, and feature specs
-
-## Quickstart (Inference Stack)
-- Prereqs: Docker and Docker Compose.
-- Build and run backend + Streamlit locally:
-  ```bash
-  docker-compose up --build backend streamlit
-  ```
-- Backend: http://localhost:8000 (`/docs` for OpenAPI)  
-- Frontend: http://localhost:8501
+## Project Structure
+- `backend/` – FastAPI service, monitoring, models, and tests
+- `frontend/` – Streamlit UI for inference, metrics, and monitoring
+- `deployment/` – Docker, Kubernetes, monitoring, and infrastructure assets
+- `sagemaker/` – SageMaker deployment scripts, configs, and docs
+- `notebooks/` – Jupyter notebooks for training and experiments
+- `data/` – Local datasets (gitignored)
+- `scripts/` – Utility scripts (upload, deploy, Terraform helpers)
+- `docs/` – Architecture, operations, and user guides
+- `specs/` – Feature specs and user stories
+- `project-files/` – Misc project artifacts
+- `docker-compose.yml` – Local stack composition
 
 ## ML Application Setup For Local Inference & Testing
-- For full local setup and execution steps, follow [user-guide-local-setup.md](docs/user-guides/user-guide-local-setup.md).
+- Download the v6 model and reference_dataset from [Google Drive](https://drive.google.com/drive/folders/1p75TDFogCS5wt4x7VrA1JJcoVBDXTIfh?usp=drive_link)
+- Next, follow the setup and deployment instructions in [user-guide-local-setup.md](docs/user-guides/user-guide-local-setup.md).
 
 ### How to Access the App and Important URLs
 - Streamlit UI: http://localhost:8501 (or the port you configured in the guide)  
