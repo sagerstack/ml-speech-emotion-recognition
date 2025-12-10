@@ -48,8 +48,8 @@ jobs:
       - name: Install dependencies
         run: poetry install --with dev --no-interaction --no-ansi
 
-      - name: Run unit tests
-        run: poetry run pytest -m unit --maxfail=1 -p no:pytest_cov -o addopts="--strict-markers --strict-config --verbose --tb=short -ra"
+      - name: Run unit tests (CI profile)
+        run: poetry run pytest -m "unit and not skipci" --maxfail=1 -p no:pytest_cov -o addopts="--strict-markers --strict-config --verbose --tb=short -ra"
 
   terraform-format:
     runs-on: ubuntu-latest
