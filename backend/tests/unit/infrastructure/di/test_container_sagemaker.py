@@ -89,3 +89,68 @@ class TestDIContainerSageMaker:
         assert isinstance(use_case.model_repository, SageMakerModelRepository)
         assert use_case.audio_processor is not None
         assert use_case.logger is not None
+
+    def test_get_model_info_use_case(self, mock_settings_local):
+        """Test GetModelInfoUseCase is wired with correct repository."""
+        container = DIContainer()
+        use_case = container.get_model_info_use_case()
+
+        assert use_case.model_repository is not None
+        assert isinstance(use_case.model_repository, FileSystemModelRepository)
+
+    def test_get_list_models_use_case(self, mock_settings_local):
+        """Test ListModelsUseCase is wired with correct repository."""
+        container = DIContainer()
+        use_case = container.get_list_models_use_case()
+
+        assert use_case.model_repository is not None
+        assert isinstance(use_case.model_repository, FileSystemModelRepository)
+
+
+class TestContainerGlobalFunctions:
+    """Test global container functions."""
+
+    @pytest.fixture(autouse=True)
+    def reset_global_container(self):
+        """Reset global container before and after each test."""
+        from app.infrastructure.di.container import reset_container
+        reset_container()
+        yield
+        reset_container()
+
+    @pytest.fixture
+    def mock_settings_local(self):
+        """Mock settings for local development mode."""
+        with patch("app.infrastructure.di.container.get_settings") as mock_get_settings:
+            mock_settings = mock_get_settings.return_value
+            mock_settings.use_sagemaker = False
+            yield mock_settings
+
+    def test_get_container_creates_singleton(self, mock_settings_local):
+        """Test get_container creates and returns singleton."""
+        from app.infrastructure.di.container import get_container
+
+        container1 = get_container()
+        container2 = get_container()
+
+        assert container1 is container2
+        assert isinstance(container1, DIContainer)
+
+    def test_get_container_with_models_dir(self, mock_settings_local):
+        """Test get_container accepts models_dir on first call."""
+        from app.infrastructure.di.container import get_container
+
+        container = get_container(models_dir="/custom/path")
+
+        assert container._models_dir == "/custom/path"
+
+    def test_reset_container_clears_singleton(self, mock_settings_local):
+        """Test reset_container clears the global singleton."""
+        from app.infrastructure.di.container import get_container, reset_container
+
+        container1 = get_container()
+        reset_container()
+        container2 = get_container()
+
+        # After reset, should be a new instance
+        assert container1 is not container2

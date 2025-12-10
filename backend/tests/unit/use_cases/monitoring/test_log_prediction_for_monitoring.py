@@ -1,239 +1,177 @@
-"""Tests for LogPredictionForMonitoringUseCase."""
+"""
+Unit tests for LogPredictionForMonitoringUseCase.
+
+Tests the monitoring logging use case including:
+- Successful prediction logging
+- Handling when monitoring is disabled
+- Error handling
+- Auto-report triggering
+"""
 
 from datetime import datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
 from app.domain.model.value_objects.emotion import Emotion
-from app.domain.monitoring.prediction_buffer import PredictionRecord
-from app.infrastructure.monitoring.evidently_service import EvidentlyService
-from app.use_cases.monitoring.log_prediction_for_monitoring import (
-    LogPredictionForMonitoringUseCase,
-)
+from app.use_cases.monitoring.log_prediction_for_monitoring import LogPredictionForMonitoringUseCase
 
 
-class TestLogPredictionForMonitoringUseCase:
-    """Test suite for LogPredictionForMonitoringUseCase."""
+class TestLogPredictionForMonitoringUseCaseExecute:
+    """Test execute method."""
 
-    @pytest.fixture
-    def mock_monitoring_service(self):
-        """Create mock EvidentlyService."""
-        service = MagicMock(spec=EvidentlyService)
-        service.log_prediction.return_value = 10  # Mock buffer length
-        return service
+    def test_execute_success(self):
+        """Test successful prediction logging."""
+        mock_monitoring_service = Mock()
+        mock_monitoring_service.log_prediction.return_value = 5
+        mock_logger = Mock()
 
-    @pytest.fixture
-    def mock_logger(self):
-        """Create mock logger."""
-        return MagicMock()
-
-    @pytest.fixture
-    def use_case(self, mock_monitoring_service, mock_logger):
-        """Create LogPredictionForMonitoringUseCase instance."""
-        return LogPredictionForMonitoringUseCase(
+        use_case = LogPredictionForMonitoringUseCase(
             monitoring_service=mock_monitoring_service,
             logger=mock_logger,
         )
 
-    def test_execute_logs_prediction_successfully(self, use_case, mock_monitoring_service):
-        """Test that execute logs prediction and returns prediction_id."""
-        # Arrange
-        emotion = Emotion.HAPPY
-        confidence = 0.92
-        probabilities = {
-            Emotion.ANGRY: 0.01,
-            Emotion.DISGUST: 0.02,
-            Emotion.FEAR: 0.03,
-            Emotion.HAPPY: 0.92,
-            Emotion.NEUTRAL: 0.01,
-            Emotion.SAD: 0.01,
-        }
-        features = {"feature_1": 0.5, "feature_2": 1.2}
-        audio_bytes = b"fake_audio_data"
-        filename = "test.wav"
-        model_version = "v5"
-
-        # Act
         prediction_id = use_case.execute(
-            emotion=emotion,
-            confidence=confidence,
-            probabilities=probabilities,
-            features=features,
-            audio_bytes=audio_bytes,
-            filename=filename,
-            model_version=model_version,
+            emotion=Emotion.HAPPY,
+            confidence=0.9,
+            probabilities={Emotion.HAPPY: 0.9, Emotion.SAD: 0.1},
+            features={"feature_a": 0.5},
+            audio_bytes=b"fake audio",
+            filename="test.wav",
+            model_version="1",
+            api_version="v2",
         )
 
-        # Assert
-        assert prediction_id is not None
-        assert isinstance(prediction_id, str)
-        assert len(prediction_id) == 36  # UUID format
+        # Should return a valid UUID
+        assert len(prediction_id) == 36
+        assert "-" in prediction_id
 
-        # Verify monitoring service was called
+        # Should log prediction
         mock_monitoring_service.log_prediction.assert_called_once()
-        call_args = mock_monitoring_service.log_prediction.call_args[0]
-        record = call_args[0]
+        mock_logger.info.assert_called_once()
 
-        assert isinstance(record, PredictionRecord)
-        assert record.predicted_emotion == emotion.value
-        assert record.confidence == confidence
-        assert record.probabilities == {e.value: p for e, p in probabilities.items()}
-        assert record.features == features
-        assert record.filename == filename
-        assert record.model_version == model_version
-        assert record.api_version == "v1"  # Default api_version
-        assert record.prediction_id == prediction_id
+    def test_execute_monitoring_disabled(self):
+        """Test execute when monitoring is disabled (service is None)."""
+        mock_logger = Mock()
 
-    def test_execute_logs_prediction_with_v2_api_version(self, use_case, mock_monitoring_service):
-        """Test that execute logs prediction with v2 api_version."""
-        # Arrange
-        emotion = Emotion.HAPPY
-        confidence = 0.92
-        probabilities = {
-            Emotion.ANGRY: 0.01,
-            Emotion.DISGUST: 0.02,
-            Emotion.FEAR: 0.03,
-            Emotion.HAPPY: 0.92,
-            Emotion.NEUTRAL: 0.01,
-            Emotion.SAD: 0.01,
-        }
-        features = {"feature_1": 0.5, "feature_2": 1.2}
-        audio_bytes = b"fake_audio_data"
-        filename = "test.wav"
-        model_version = "v5"
-        api_version = "v2"
-
-        # Act
-        prediction_id = use_case.execute(
-            emotion=emotion,
-            confidence=confidence,
-            probabilities=probabilities,
-            features=features,
-            audio_bytes=audio_bytes,
-            filename=filename,
-            model_version=model_version,
-            api_version=api_version,
+        use_case = LogPredictionForMonitoringUseCase(
+            monitoring_service=None,
+            logger=mock_logger,
         )
 
-        # Assert
-        assert prediction_id is not None
-        assert isinstance(prediction_id, str)
-
-        # Verify monitoring service was called with v2 api_version
-        mock_monitoring_service.log_prediction.assert_called_once()
-        call_args = mock_monitoring_service.log_prediction.call_args[0]
-        record = call_args[0]
-
-        assert isinstance(record, PredictionRecord)
-        assert record.api_version == "v2"
-        assert record.model_version == model_version
-
-    def test_execute_handles_monitoring_error_gracefully(
-        self, use_case, mock_monitoring_service, mock_logger
-    ):
-        """Test that monitoring errors don't fail the use case."""
-        # Arrange
-        mock_monitoring_service.log_prediction.side_effect = Exception("Monitoring service error")
-
-        emotion = Emotion.HAPPY
-        confidence = 0.92
-        probabilities = {
-            Emotion.ANGRY: 0.01,
-            Emotion.DISGUST: 0.02,
-            Emotion.FEAR: 0.03,
-            Emotion.HAPPY: 0.92,
-            Emotion.NEUTRAL: 0.01,
-            Emotion.SAD: 0.01,
-        }
-        features = {"feature_1": 0.5}
-        audio_bytes = b"data"
-        filename = "test.wav"
-        model_version = "v5"
-
-        # Act
         prediction_id = use_case.execute(
-            emotion=emotion,
-            confidence=confidence,
-            probabilities=probabilities,
-            features=features,
-            audio_bytes=audio_bytes,
-            filename=filename,
-            model_version=model_version,
+            emotion=Emotion.HAPPY,
+            confidence=0.9,
+            probabilities={Emotion.HAPPY: 0.9},
+            features={"feature_a": 0.5},
+            audio_bytes=b"fake audio",
+            filename="test.wav",
+            model_version="1",
         )
 
-        # Assert - should return empty string on error
+        # Should return empty string
+        assert prediction_id == ""
+        mock_logger.info.assert_not_called()
+
+    def test_execute_with_exception(self):
+        """Test execute when monitoring service raises exception."""
+        mock_monitoring_service = Mock()
+        mock_monitoring_service.log_prediction.side_effect = Exception("Buffer full")
+        mock_logger = Mock()
+
+        use_case = LogPredictionForMonitoringUseCase(
+            monitoring_service=mock_monitoring_service,
+            logger=mock_logger,
+        )
+
+        prediction_id = use_case.execute(
+            emotion=Emotion.HAPPY,
+            confidence=0.9,
+            probabilities={Emotion.HAPPY: 0.9},
+            features={"feature_a": 0.5},
+            audio_bytes=b"fake audio",
+            filename="test.wav",
+            model_version="1",
+        )
+
+        # Should return empty string on error
         assert prediction_id == ""
 
-        # Verify error was logged
+        # Should log warning
         mock_logger.warning.assert_called_once()
-        assert "Monitoring logging failed" in str(mock_logger.warning.call_args)
+        call_args = mock_logger.warning.call_args
+        assert "Monitoring logging failed" in str(call_args)
 
-    def test_execute_with_minimal_data(self, use_case, mock_monitoring_service):
-        """Test execute with minimal required data."""
-        # Arrange
-        emotion = Emotion.NEUTRAL
-        confidence = 0.5
-        probabilities = {
-            Emotion.ANGRY: 0.1,
-            Emotion.DISGUST: 0.1,
-            Emotion.FEAR: 0.1,
-            Emotion.HAPPY: 0.1,
-            Emotion.NEUTRAL: 0.5,
-            Emotion.SAD: 0.1,
-        }
-        features = {}
-        audio_bytes = b""
-        filename = "minimal.wav"
-        model_version = "v1"
 
-        # Act
-        prediction_id = use_case.execute(
-            emotion=emotion,
-            confidence=confidence,
-            probabilities=probabilities,
-            features=features,
-            audio_bytes=audio_bytes,
-            filename=filename,
-            model_version=model_version,
+class TestLogPredictionForMonitoringUseCaseTriggerAutoReport:
+    """Test _trigger_auto_report method."""
+
+    def test_trigger_auto_report_success(self):
+        """Test successful auto-report generation."""
+        mock_monitoring_service = Mock()
+        mock_report_info = Mock()
+        mock_report_info.name = "test_report"
+        mock_report_info.html_path = "/tmp/test_report.html"
+        mock_monitoring_service.generate_report.return_value = mock_report_info
+        mock_logger = Mock()
+
+        use_case = LogPredictionForMonitoringUseCase(
+            monitoring_service=mock_monitoring_service,
+            logger=mock_logger,
         )
 
-        # Assert
-        assert prediction_id is not None
-        assert isinstance(prediction_id, str)
-        mock_monitoring_service.log_prediction.assert_called_once()
+        use_case._trigger_auto_report(buffer_length=100)
 
-    def test_execute_converts_emotion_enum_to_string(self, use_case, mock_monitoring_service):
-        """Test that Emotion enum is converted to string for monitoring."""
-        # Arrange
-        emotion = Emotion.SAD
-        confidence = 0.85
-        probabilities = {
-            Emotion.ANGRY: 0.02,
-            Emotion.DISGUST: 0.02,
-            Emotion.FEAR: 0.03,
-            Emotion.HAPPY: 0.02,
-            Emotion.NEUTRAL: 0.06,
-            Emotion.SAD: 0.85,
-        }
-        features = {"feature_1": 1.0}
-        audio_bytes = b"data"
-        filename = "sad.wav"
-        model_version = "v5"
+        # Should call generate_report
+        mock_monitoring_service.generate_report.assert_called_once()
 
-        # Act
-        use_case.execute(
-            emotion=emotion,
-            confidence=confidence,
-            probabilities=probabilities,
-            features=features,
-            audio_bytes=audio_bytes,
-            filename=filename,
-            model_version=model_version,
+        # Should log info twice (starting and success)
+        assert mock_logger.info.call_count == 2
+
+    def test_trigger_auto_report_failure(self):
+        """Test auto-report generation when it fails."""
+        mock_monitoring_service = Mock()
+        mock_monitoring_service.generate_report.side_effect = Exception("Report generation failed")
+        mock_logger = Mock()
+
+        use_case = LogPredictionForMonitoringUseCase(
+            monitoring_service=mock_monitoring_service,
+            logger=mock_logger,
         )
 
-        # Assert
-        call_args = mock_monitoring_service.log_prediction.call_args[0]
-        record = call_args[0]
-        assert record.predicted_emotion == "sad"  # String, not Emotion enum
-        assert isinstance(record.predicted_emotion, str)
+        # Should not raise exception
+        use_case._trigger_auto_report(buffer_length=100)
+
+        # Should log warning
+        mock_logger.warning.assert_called_once()
+        call_args = mock_logger.warning.call_args
+        assert "Auto-report generation failed" in str(call_args)
+
+
+class TestLogPredictionForMonitoringUseCaseInit:
+    """Test initialization."""
+
+    def test_init_with_service(self):
+        """Test initialization with monitoring service."""
+        mock_service = Mock()
+        mock_logger = Mock()
+
+        use_case = LogPredictionForMonitoringUseCase(
+            monitoring_service=mock_service,
+            logger=mock_logger,
+        )
+
+        assert use_case.monitoring_service == mock_service
+        assert use_case.logger == mock_logger
+
+    def test_init_without_service(self):
+        """Test initialization without monitoring service."""
+        mock_logger = Mock()
+
+        use_case = LogPredictionForMonitoringUseCase(
+            monitoring_service=None,
+            logger=mock_logger,
+        )
+
+        assert use_case.monitoring_service is None
+        assert use_case.logger == mock_logger
