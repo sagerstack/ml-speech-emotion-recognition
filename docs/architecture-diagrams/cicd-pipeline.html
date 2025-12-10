@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CI/CD Pipeline - GitHub Actions</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 1600px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2d3748;
+            margin-bottom: 40px;
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        .pipeline {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+            overflow-x: auto;
+            padding: 20px 0;
+        }
+
+        .phase {
+            flex: 1;
+            min-width: 240px;
+            background: #f7fafc;
+            border-radius: 8px;
+            padding: 16px;
+            position: relative;
+            border: 2px solid #e2e8f0;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .phase:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        }
+
+        .phase-header {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            color: white;
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-weight: 600;
+            font-size: 16px;
+            text-align: center;
+        }
+
+        .phase-number {
+            display: inline-block;
+            background: rgba(255,255,255,0.3);
+            padding: 2px 8px;
+            border-radius: 12px;
+            margin-right: 8px;
+            font-size: 12px;
+        }
+
+        .phase-content {
+            font-size: 13px;
+            color: #4a5568;
+            line-height: 1.6;
+        }
+
+        .step {
+            background: white;
+            padding: 10px 12px;
+            margin: 8px 0;
+            border-radius: 6px;
+            border-left: 3px solid #3b82f6;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .step-title {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 6px;
+        }
+
+        .step-detail {
+            font-size: 12px;
+            color: #718096;
+            padding-left: 12px;
+        }
+
+        .check-list {
+            background: #edf2f7;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 8px;
+            font-size: 11px;
+        }
+
+        .check-item {
+            padding: 3px 0;
+            color: #2d3748;
+        }
+
+        .check-item::before {
+            content: "✓ ";
+            color: #10b981;
+            font-weight: bold;
+        }
+
+        .arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #3b82f6;
+            font-size: 20px;
+            font-weight: bold;
+            min-width: 15px;
+            flex-shrink: 0;
+        }
+
+        .highlight {
+            background: #dbeafe;
+            padding: 8px 12px;
+            border-radius: 4px;
+            border-left: 3px solid #3b82f6;
+            margin: 8px 0;
+            font-size: 12px;
+        }
+
+        .warning {
+            background: #fef3c7;
+            padding: 8px 12px;
+            border-radius: 4px;
+            border-left: 3px solid #f59e0b;
+            margin: 8px 0;
+            font-size: 12px;
+        }
+
+        .success {
+            background: #d1fae5;
+            padding: 8px 12px;
+            border-radius: 4px;
+            border-left: 3px solid #10b981;
+            margin: 8px 0;
+            font-size: 12px;
+        }
+
+        .code {
+            background: #2d3748;
+            color: #68d391;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            margin: 8px 0;
+            overflow-x: auto;
+        }
+
+        .tag {
+            display: inline-block;
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            margin: 2px;
+            font-weight: 500;
+        }
+
+        .tag.green {
+            background: #d1fae5;
+            color: #047857;
+        }
+
+        .tag.yellow {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #718096;
+            font-size: 12px;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 CI/CD Pipeline: GitHub Actions → EKS + SageMaker</h1>
+
+        <div class="pipeline">
+            <!-- PHASE 1 -->
+            <div class="phase">
+                <div class="phase-header">
+                    <span class="phase-number">1</span>
+                    Feature Branch<br>Development
+                </div>
+                <div class="phase-content">
+                    <div class="step">
+                        <div class="step-title">🌿 Create Branch</div>
+                        <div class="code">git checkout -b feature/xyz</div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">💻 Development</div>
+                        <div class="step-detail">Write code, add tests, update docs</div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">📝 Commit & Push</div>
+                        <div class="code">git push origin feature/xyz</div>
+                    </div>
+
+                    <div class="highlight">
+                        <strong>Protected:</strong> Cannot push directly to main branch
+                    </div>
+
+                    <div class="tag">Git</div>
+                    <div class="tag">Feature Branch</div>
+                </div>
+            </div>
+
+            <div class="arrow">→</div>
+
+            <!-- PHASE 2 -->
+            <div class="phase">
+                <div class="phase-header">
+                    <span class="phase-number">2</span>
+                    Pull Request<br>Created
+                </div>
+                <div class="phase-content">
+                    <div class="step">
+                        <div class="step-title">🔀 Open PR</div>
+                        <div class="step-detail">Create PR to merge into main</div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">👥 Code Review</div>
+                        <div class="step-detail">Team reviews changes</div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">🤖 CI Triggered</div>
+                        <div class="step-detail">GitHub Actions starts CI workflow</div>
+                    </div>
+
+                    <div class="warning">
+                        <strong>Requirement:</strong> CI must pass before merge
+                    </div>
+
+                    <div class="tag">GitHub</div>
+                    <div class="tag">Code Review</div>
+                    <div class="tag">Automated</div>
+                </div>
+            </div>
+
+            <div class="arrow">→</div>
+
+            <!-- PHASE 3 -->
+            <div class="phase">
+                <div class="phase-header">
+                    <span class="phase-number">3</span>
+                    CI on PR<br>(Quality Gates)
+                </div>
+                <div class="phase-content">
+                    <div class="step">
+                        <div class="step-title">🧪 Run Tests</div>
+                        <div class="check-list">
+                            <div class="check-item">Unit tests (pytest)</div>
+                            <div class="check-item">Integration tests</div>
+                            <div class="check-item">E2E tests</div>
+                        </div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">🔍 Code Quality</div>
+                        <div class="check-list">
+                            <div class="check-item">Linting (ruff)</div>
+                            <div class="check-item">Type checking (mypy)</div>
+                            <div class="check-item">Code formatting (black)</div>
+                        </div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">🔒 Security Scan</div>
+                        <div class="check-list">
+                            <div class="check-item">Dependency vulnerabilities</div>
+                            <div class="check-item">Static code analysis</div>
+                        </div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">🐳 Build Images</div>
+                        <div class="step-detail">Backend + Frontend (not pushed yet)</div>
+                    </div>
+
+                    <div class="tag">pytest</div>
+                    <div class="tag">ruff</div>
+                    <div class="tag">mypy</div>
+                </div>
+            </div>
+
+            <div class="arrow">→</div>
+
+            <!-- PHASE 4 -->
+            <div class="phase">
+                <div class="phase-header">
+                    <span class="phase-number">4</span>
+                    Merge to<br>Main
+                </div>
+                <div class="phase-content">
+                    <div class="step">
+                        <div class="step-title">✅ CI Passed</div>
+                        <div class="step-detail">All quality gates passed</div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">👍 Approved</div>
+                        <div class="step-detail">Code review approved</div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">🔗 Merge PR</div>
+                        <div class="code">Squash and merge</div>
+                    </div>
+
+                    <div class="success">
+                        <strong>Trigger:</strong> CI on main branch starts automatically
+                    </div>
+
+                    <div class="tag green">Protected Branch</div>
+                    <div class="tag green">Auto-trigger</div>
+                </div>
+            </div>
+
+            <div class="arrow">→</div>
+
+            <!-- PHASE 5 -->
+            <div class="phase">
+                <div class="phase-header">
+                    <span class="phase-number">5</span>
+                    CI on Main<br>(Build & Push)
+                </div>
+                <div class="phase-content">
+                    <div class="step">
+                        <div class="step-title">🔁 Re-run Quality Gates</div>
+                        <div class="step-detail">Tests, linting, security scan</div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">🐳 Build Docker Images</div>
+                        <div class="check-list">
+                            <div class="check-item">Backend (FastAPI)</div>
+                            <div class="check-item">Frontend (Streamlit)</div>
+                        </div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">📤 Push to ECR</div>
+                        <div class="code">Tag: git-commit-sha (7 chars)<br>Tag: latest</div>
+                    </div>
+
+                    <div class="highlight">
+                        <strong>Artifacts:</strong> Images ready for deployment
+                    </div>
+
+                    <div class="tag">Docker</div>
+                    <div class="tag">ECR</div>
+                    <div class="tag">Versioned</div>
+                </div>
+            </div>
+
+            <div class="arrow">→</div>
+
+            <!-- PHASE 6 -->
+            <div class="phase">
+                <div class="phase-header">
+                    <span class="phase-number">6</span>
+                    CD Deployment<br>(Manual Trigger)
+                </div>
+                <div class="phase-content">
+                    <div class="step">
+                        <div class="step-title">🔒 Branch Validation</div>
+                        <div class="step-detail">Verify running from main branch</div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">🤖 Deploy SageMaker</div>
+                        <div class="check-list">
+                            <div class="check-item">Create SageMaker Model</div>
+                            <div class="check-item">Create Endpoint Config</div>
+                            <div class="check-item">Create/Update Endpoint</div>
+                        </div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">☸️ Deploy to EKS</div>
+                        <div class="check-list">
+                            <div class="check-item">Update deployments</div>
+                            <div class="check-item">Rolling restart</div>
+                            <div class="check-item">Health checks</div>
+                        </div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">📊 Deploy Monitoring</div>
+                        <div class="step-detail">Grafana, Prometheus, Loki, Tempo</div>
+                    </div>
+
+                    <div class="code">gh workflow run cd.yml<br>-f deploy_eks=true<br>-f deploy_sagemaker=true</div>
+
+                    <div class="tag yellow">Manual</div>
+                    <div class="tag green">Production</div>
+                </div>
+            </div>
+
+            <div class="arrow">→</div>
+
+            <!-- PHASE 7 -->
+            <div class="phase">
+                <div class="phase-header">
+                    <span class="phase-number">7</span>
+                    Production<br>Deployed
+                </div>
+                <div class="phase-content">
+                    <div class="step">
+                        <div class="step-title">✅ EKS Running</div>
+                        <div class="step-detail">
+                            Backend (2 replicas)<br>
+                            Frontend (2 replicas)<br>
+                            Monitoring stack
+                        </div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">✅ SageMaker InService</div>
+                        <div class="step-detail">
+                            Endpoint: ml-ser-v1<br>
+                            Instance: ml.t2.medium
+                        </div>
+                    </div>
+
+                    <div class="step">
+                        <div class="step-title">🔍 Smoke Tests</div>
+                        <div class="check-list">
+                            <div class="check-item">Backend health check</div>
+                            <div class="check-item">Frontend accessibility</div>
+                            <div class="check-item">ALB provisioned</div>
+                        </div>
+                    </div>
+
+                    <div class="success">
+                        <strong>Live:</strong> Application accessible to users
+                    </div>
+
+                    <div class="tag green">InService</div>
+                    <div class="tag green">Monitored</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p><strong>ML Speech Emotion Recognition</strong> | CI/CD Pipeline | GitHub Actions | AWS EKS + SageMaker</p>
+            <p>Automated Testing → Code Quality → Security → Build → Deploy → Monitor</p>
+        </div>
+    </div>
+</body>
+</html>

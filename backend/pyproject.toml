@@ -141,6 +141,22 @@ python_functions = ["test_*"]
 addopts = "-v --cov=app --cov-report=term-missing --cov-report=html"
 asyncio_mode = "auto"
 
+# Coverage configuration
+[tool.coverage.run]
+omit = [
+    # v5 feature extractor is equivalent to v4, exclude from coverage
+    "app/infrastructure/model/v5/*",
+    # API endpoints are tested via integration tests, not unit tests
+    "app/api/v1/endpoints/*",
+    "app/api/v2/endpoints/*",
+    # Domain interfaces and abstract base classes - implementations are tested
+    "app/domain/interfaces/*",
+    "app/domain/model/repositories/*",
+    "app/domain/model/services/*",
+    "app/domain/monitoring/repositories/*",
+    "app/domain/monitoring/services/*",
+]
+
 # Bandit security configuration
 [tool.bandit]
 exclude_dirs = ["tests"]

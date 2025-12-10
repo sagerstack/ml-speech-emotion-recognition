@@ -323,7 +323,7 @@ sleep 3
 
 # Test backend connectivity
 echo "Testing backend connectivity..."
-if curl -s -f http://localhost:8000/health >/dev/null 2>&1; then
+if curl -s -f http://localhost:8000/ml-ser/health >/dev/null 2>&1; then
   echo "Backend is accessible ✓"
 else
   echo "Warning: Backend health check failed. Port forward may still be establishing."
@@ -341,7 +341,7 @@ cat <<EOF
 └──────────────────────────────────────────────────────────────┘
 
 📱 STREAMLIT WEB APP (Main Interface)
-   👉 http://localhost:8501
+   👉 http://localhost:8501/ml-ser/
 
    This is your main application interface for:
    - Uploading audio files
@@ -349,13 +349,13 @@ cat <<EOF
    - Viewing results and visualizations
 
 🔧 BACKEND API
-   👉 http://localhost:8000
+   👉 http://localhost:8000/ml-ser
 
    Key Endpoints:
-   • Health Check:  http://localhost:8000/health
-   • API Docs:      http://localhost:8000/docs
-   • Metrics:       http://localhost:8000/metrics
-   • Model Info:    http://localhost:8000/v1/models/local/latest
+   • Health Check:  http://localhost:8000/ml-ser/health
+   • API Docs:      http://localhost:8000/ml-ser/docs
+   • Metrics:       http://localhost:8000/ml-ser/metrics
+   • Model Info:    http://localhost:8000/ml-ser/v2/inference/info
 
 EOF
 
@@ -369,9 +369,12 @@ if [ "${DEPLOY_MONITORING}" = true ]; then
    📉 Grafana (Dashboards & Visualization)
    👉 http://localhost:3000
 
-   📝 Credentials: admin / admin
+   Pre-configured Dashboards:
+   • App Metrics:       http://localhost:3000/d/893b67e4-6d93-49db-9047-9df11b9c86dc/ser-app-dashboard
+   • Kubernetes:        http://localhost:3000/d/fe5807eb-0772-41d0-8d28-03838a5b9671/kubernetes-dashboard
 
-   Note: Loki is running internally for log aggregation
+   Note: Anonymous access enabled (no login required)
+         Loki is running internally for log aggregation
          Access logs via Grafana's Explore view
 
 EOF

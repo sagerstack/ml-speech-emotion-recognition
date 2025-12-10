@@ -652,6 +652,10 @@ spec:
           value: /etc/grafana/provisioning
         - name: GF_USERS_DEFAULT_THEME
           value: dark
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: 'true'
+        - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+          value: 'Viewer'
         - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
           value: /var/lib/grafana/dashboards/k8s-dashboard.json
         resources:

@@ -1493,6 +1493,7 @@ data:
       "timepicker": {},
       "timezone": "",
       "title": "SER App Dashboard",
+      "uid": "893b67e4-6d93-49db-9047-9df11b9c86dc",
       "weekStart": "",
       "gnetId": 16110
     }
@@ -3630,5 +3631,6 @@ data:
       "timepicker": {},
       "timezone": "Asia/Yangon",
       "title": "Kubernetes Dashboard",
+      "uid": "fe5807eb-0772-41d0-8d28-03838a5b9671",
       "weekStart": ""
     }
