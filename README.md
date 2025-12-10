@@ -1,5 +1,12 @@
 # Machine Learning Speech Emotion Recognition
 
+## Project Overview
+End-to-end speech emotion recognition system with:
+- Jupyter notebooks for model development and experimentation
+- FastAPI backend (Clean Architecture) serving local and SageMaker-hosted models
+- Streamlit frontend for uploads, inference visualization, monitoring, and history
+- Deployment stacks for Docker Compose, Kubernetes, and AWS SageMaker
+
 ## Jupyter Notebook & Model Training Setup
 INSTRUCTIONS TO RETRAIN THE MODELS IN ITS ENTIRETY (TAKES 3-4HRS TO RUN)  
 *NOTE:* Due to the number of experiments that you have to run, each notebook will take 3-4 hours to run.
@@ -15,29 +22,26 @@ INSTRUCTIONS TO RETRAIN THE MODELS IN ITS ENTIRETY (TAKES 3-4HRS TO RUN)
 5. Run all cells in order (Kernel → Restart & Run All).  
 6. Training results and plots will be displayed at the end.
 
-## Project Overview
-End-to-end speech emotion recognition system with:
-- FastAPI backend (Clean Architecture) serving local and SageMaker-hosted models
-- Streamlit frontend for uploads, inference visualization, monitoring, and history
-- Jupyter notebooks for model development and experimentation
-- Deployment stacks for Docker Compose, Kubernetes, and AWS SageMaker
-
-## Project Structure
-- `backend/` – FastAPI service, monitoring, models, and tests
-- `frontend/` – Streamlit UI for inference, metrics, and monitoring
-- `deployment/` – Docker, Kubernetes, monitoring, and infrastructure assets
-- `sagemaker/` – SageMaker deployment scripts, configs, and docs
-- `notebooks/` – Jupyter notebooks for training and experiments
-- `data/` – Local datasets (gitignored)
-- `scripts/` – Utility scripts (upload, deploy, Terraform helpers)
-- `docs/` – Architecture, operations, and user guides
-- `specs/` – Feature specs and user stories
-- `project-files/` – Misc project artifacts
-- `docker-compose.yml` – Local stack composition
-
 ## ML Application Setup For Local Inference & Testing
 - Download the v6 model and reference_dataset from [Google Drive](https://drive.google.com/drive/folders/1p75TDFogCS5wt4x7VrA1JJcoVBDXTIfh?usp=drive_link)
 - Next, follow the setup and deployment instructions in [user-guide-local-setup.md](docs/user-guides/user-guide-local-setup.md).
+
+## Project Structure
+```
+ml-speech-emotion-recognition/
+├── backend/          # FastAPI service, monitoring, models, tests
+├── frontend/         # Streamlit UI for inference, metrics, monitoring
+├── deployment/       # Docker, Kubernetes, monitoring, infrastructure assets
+├── notebooks/        # Jupyter notebooks for training/experiments
+├── data/             # Local datasets (gitignored)
+├── scripts/          # Utility scripts (upload, deploy, Terraform helpers)
+├── docs/             # Architecture, operations, user guides
+├── specs/            # Feature specs and user stories
+├── reports/          # Project artifacts
+└── README.md         # Local stack composition
+```
+
+
 
 ### How to Access the App and Important URLs
 - Streamlit UI: http://localhost:8501 (or the port you configured in the guide)  
