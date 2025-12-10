@@ -272,7 +272,7 @@ minikube delete
 
 ---
 
-## Project Structure Overview
+## Project Structure Overview (Relevant for Local Deployment)
 
 ```
 ml-speech-emotion-recognition/
