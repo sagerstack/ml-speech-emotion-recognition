@@ -31,13 +31,19 @@ st.set_page_config(
 BASE_DIR = Path(__file__).resolve().parent
 
 # Configuration
-FALLBACK_TO_MOCK = os.getenv("FALLBACK_TO_MOCK", "true").lower() == "true"
 SHOW_DEBUG_INFO = os.getenv("SHOW_DEBUG_INFO", "true").lower() == "true"
 
 def get_active_backend():
     """Get the active backend (real or mock)"""
-    use_real_backend, _, _ = get_backend_status()
-    return real_lab_backend if use_real_backend else mock_lab_backend
+    use_real_backend, backend_healthy, force_mock = get_backend_status()
+
+    if force_mock:
+        return mock_lab_backend
+
+    if not backend_healthy:
+        raise RuntimeError("Backend is unavailable and mock mode is disabled. Please enable mock mode or restore backend connectivity.")
+
+    return real_lab_backend
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def fetch_model_metadata():
@@ -392,7 +398,7 @@ def stage_audio_recording() -> AnalysisResult | None:
                 audio_bytes = _load_audio_from_upload(audio_source)
                 # Check if we're in mock mode for simulated delay
                 use_real_backend, _, force_mock = get_backend_status()
-                is_mock_mode = not use_real_backend or force_mock
+                is_mock_mode = force_mock
 
                 with st.status("Analyzing audio...", expanded=True) as status:
                     status.write("Loading audio file...")
@@ -656,17 +662,18 @@ def stage_feature_analysis(feature_summary: dict | None):
             if not audio_blob:
                 st.warning("Analyze audio first to enable prediction.", icon="⚠️")
                 return
-            backend = get_active_backend()
-            audio_bytes = audio_blob["bytes"]
-            engine = audio_blob["engine"]
-            filename = audio_blob["filename"]
             try:
+                backend = get_active_backend()
+                audio_bytes = audio_blob["bytes"]
+                engine = audio_blob["engine"]
+                filename = audio_blob["filename"]
+
                 file_obj = io.BytesIO(audio_bytes)
                 file_obj.name = filename
 
                 # Check if we're in mock mode for simulated delay
                 use_real_backend, _, force_mock = get_backend_status()
-                is_mock_mode = not use_real_backend or force_mock
+                is_mock_mode = force_mock
 
                 with prediction_status_placeholder.status("Running emotion prediction...", expanded=True) as status:
                     status.write("Preparing audio for inference...")
@@ -992,13 +999,13 @@ def _submit_feedback(prediction_id: str, actual_emotion: str) -> tuple[bool, str
     try:
         client = get_api_client()
         client.submit_feedback(prediction_id, actual_emotion)
-        return True, f"Thanks for your feedback!<br><span style=\"font-size: 12px; color: #888;\">(prediction_id: {prediction_id})</span>"
+        return True, f"✅ Thanks for your feedback!<br><span style=\"font-size: 12px; color: #888;\">(prediction_id: {prediction_id})</span>"
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code == 404:
             try:
                 detail = exc.response.json().get("detail", "Prediction not found in buffer")
             except Exception:
-                detail = "Prediction not found in buffer (may have been evicted)"
+                detail = "❌ Prediction not found in buffer (may have been evicted)"
             return False, detail
         return False, str(exc)
     except requests.RequestException as exc:
@@ -1042,15 +1049,18 @@ def _render_feedback_panel(
             if not use_real_backend:
                 # In mock mode, simulate success without hitting the API
                 st.session_state[submitted_flag] = True
-                status_placeholder.success("Feedback recorded (mock mode).")
+                with status_placeholder.container():
+                    st.success("Feedback recorded (mock mode).")
+                    st.badge("prediction_id:abcd-1234-efgh-5678", color="green")
             else:
                 ok, msg = _submit_feedback(prediction_id, actual_emotion)
                 if ok:
                     st.session_state[submitted_flag] = True
-                    status_placeholder.success("Feedback submitted successfully!")
-                    status_placeholder.markdown(msg, unsafe_allow_html=True)
+                    with status_placeholder.container():
+                        st.markdown(msg, unsafe_allow_html=True)
                 else:
-                    status_placeholder.error(f"Failed to send feedback: {msg}")
+                    # status_placeholder.error(f"Failed to send feedback: {msg}")
+                    st.badge(f"Failed to send feedback: {msg}", color="red")
     with btn_cols[1]:
         st.button("🏠 Home", key=f"iter5-home-btn-{prediction_id}", type="primary", on_click=_reset_workflow_state)
 

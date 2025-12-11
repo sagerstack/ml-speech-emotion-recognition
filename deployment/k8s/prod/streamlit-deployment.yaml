@@ -47,6 +47,9 @@ spec:
           value: "/ml-ser"
         - name: ML_APP_BASE_URL
           value: "http://backend:8000"
+        # Public-facing base URL for browser links (e.g., Evidently report download)
+        - name: PUBLIC_APP_BASE_URL
+          value: "https://sagerstack.com/ml-ser"
         - name: GRAFANA_URL
           value: "/ml-ser/grafana"
         - name: LOG_LEVEL
