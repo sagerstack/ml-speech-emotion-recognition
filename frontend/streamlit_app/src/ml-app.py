@@ -358,16 +358,7 @@ def stage_audio_recording() -> AnalysisResult | None:
                 )
                 recording = None
             else:  # Live Recording
-                recording = None
-                try:
-                    recording = st.audio_input("Record Live Audio", key="iter6-record")
-                    if recording:
-                        logger.debug("Captured live recording bytes", size=len(recording.getvalue() if hasattr(recording, "getvalue") else b""))
-                    else:
-                        logger.debug("Live recording widget returned no data")
-                except Exception as exc:
-                    logger.exception("Live recording widget failed", exc_info=exc)
-                    st.error("Live recording failed to start. Check mic permissions and try again.")
+                recording = st.audio_input("Record Live Audio", key="iter6-record")
                 upload = None
         st.markdown("<br>", unsafe_allow_html=True)
 

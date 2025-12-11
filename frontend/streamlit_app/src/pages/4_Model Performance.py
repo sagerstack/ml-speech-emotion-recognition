@@ -163,11 +163,11 @@ def render_model_performance() -> None:
 
             st.markdown("---")
 
-            # Buffered predictions + Generate button row
-            stats_cols = st.columns([0.5, 0.5])
+            # New predictions + Generate button row
+            stats_cols = st.columns([0.6, 0.4])
             with stats_cols[0]:
                 buffered = new_since_report.get("new_since_last_report", buffer_stats.get("total_records", 0))
-                st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 6px;">Buffered Predictions</p>', unsafe_allow_html=True)
+                st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 6px;">New Predictions</p>', unsafe_allow_html=True)
                 st.markdown(f'<p style="color: inherit; font-size: 20px; font-weight: bold; margin-top: -8px; margin-bottom: 0;">{buffered}</p>', unsafe_allow_html=True)
             with stats_cols[1]:
                 if st.button("🧭 Generate", use_container_width=False, type="primary"):
