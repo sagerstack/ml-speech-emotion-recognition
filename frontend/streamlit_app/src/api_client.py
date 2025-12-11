@@ -433,6 +433,22 @@ class SpeechEmotionAPIClient:
             logger.error(f"Unexpected monitoring history error: {exc}")
             raise RequestException("Unable to fetch monitoring metrics history")
 
+    def fetch_new_predictions_since_last_report(self) -> Dict[str, Any]:
+        """Get count of predictions added since the most recent report."""
+        try:
+            response = self.session.get(
+                f"{self.base_url}/v1/monitoring/buffer/since-last-report",
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+        except RequestException as exc:
+            logger.error(f"New predictions since last report request failed: {exc}")
+            raise
+        except Exception as exc:
+            logger.error(f"Unexpected error fetching new predictions since last report: {exc}")
+            raise RequestException("Unable to fetch new predictions since last report")
+
     def submit_feedback(self, prediction_id: str, actual_emotion: str) -> Dict[str, Any]:
         """
         Submit feedback for a prediction to the monitoring endpoint.

@@ -358,7 +358,16 @@ def stage_audio_recording() -> AnalysisResult | None:
                 )
                 recording = None
             else:  # Live Recording
-                recording = st.audio_input("Record Live Audio", key="iter6-record")
+                recording = None
+                try:
+                    recording = st.audio_input("Record Live Audio", key="iter6-record")
+                    if recording:
+                        logger.debug("Captured live recording bytes", size=len(recording.getvalue() if hasattr(recording, "getvalue") else b""))
+                    else:
+                        logger.debug("Live recording widget returned no data")
+                except Exception as exc:
+                    logger.exception("Live recording widget failed", exc_info=exc)
+                    st.error("Live recording failed to start. Check mic permissions and try again.")
                 upload = None
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -395,6 +404,7 @@ def stage_audio_recording() -> AnalysisResult | None:
                 label = f"live-recording-{datetime.utcnow().strftime('%H%M%S')}"
 
             try:
+                logger.debug("Starting audio processing", source_label=label, has_upload=bool(upload), has_recording=bool(recording))
                 audio_bytes = _load_audio_from_upload(audio_source)
                 # Check if we're in mock mode for simulated delay
                 use_real_backend, _, force_mock = get_backend_status()
@@ -421,6 +431,7 @@ def stage_audio_recording() -> AnalysisResult | None:
                 st.rerun()
             except Exception as e:
                 error_msg = f"Failed to process audio locally: {str(e)}"
+                logger.exception("Audio processing failed", exc_info=e)
                 st.error(error_msg, icon="❌")
                 if SHOW_DEBUG_INFO:
                     st.expander("Error Details").write(str(e))
@@ -1210,6 +1221,25 @@ def stage_inference_results(result: AnalysisResult | None):
                 probabilities=payload["probabilities"],
                 use_real_backend=payload["use_real_backend"],
             )
+            # Save Audio button aligned under Home button column
+            audio_blob = st.session_state.get(AUDIO_DATA_KEY, {})
+            audio_bytes = audio_blob.get("bytes")
+            filename = audio_blob.get("filename", "audio.wav")
+            save_placeholder = st.empty()
+            if audio_bytes:
+                save_clicked = st.button("💾 Save Audio", key="iter5-save-audio-btn", type="primary")
+                if save_clicked:
+                    try:
+                        # Streamlit download_button allows user to pick download location via browser prompt
+                        save_placeholder.download_button(
+                            label="Click to download audio",
+                            data=audio_bytes,
+                            file_name=filename,
+                            mime="audio/wav",
+                            key="iter5-save-audio-download"
+                        )
+                    except Exception as exc:
+                        st.error(f"Failed to prepare download: {exc}")
 
 
 
