@@ -29,3 +29,4 @@ data:
   # Monitoring Configuration (use /tmp for read-only filesystem)
   MONITORING_REPORTS_DIR: "/tmp/monitoring_reports"
   EVIDENTLY_WORKSPACE_PATH: "/tmp/evidently_workspace"
+  MONITORING_AUTO_REPORT_THRESHOLD: "10"

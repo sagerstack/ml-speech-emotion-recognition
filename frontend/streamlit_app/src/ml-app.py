@@ -29,7 +29,6 @@ st.set_page_config(
 )
 
 BASE_DIR = Path(__file__).resolve().parent
-MONITORING_PAGE = BASE_DIR / "pages" / "3_Monitoring.py"
 
 # Configuration
 FALLBACK_TO_MOCK = os.getenv("FALLBACK_TO_MOCK", "true").lower() == "true"
@@ -993,7 +992,7 @@ def _submit_feedback(prediction_id: str, actual_emotion: str) -> tuple[bool, str
     try:
         client = get_api_client()
         client.submit_feedback(prediction_id, actual_emotion)
-        return True, "Thanks for your feedback!"
+        return True, f"Thanks for your feedback!<br><span style=\"font-size: 12px; color: #888;\">(prediction_id: {prediction_id})</span>"
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code == 404:
             try:
@@ -1048,7 +1047,8 @@ def _render_feedback_panel(
                 ok, msg = _submit_feedback(prediction_id, actual_emotion)
                 if ok:
                     st.session_state[submitted_flag] = True
-                    status_placeholder.success(msg)
+                    status_placeholder.success("Feedback submitted successfully!")
+                    status_placeholder.markdown(msg, unsafe_allow_html=True)
                 else:
                     status_placeholder.error(f"Failed to send feedback: {msg}")
     with btn_cols[1]:
@@ -1253,11 +1253,6 @@ def home_page():
 if __name__ == "__main__":
     # Create page objects
     home_page_obj = st.Page(home_page, title="Home", icon="🏠")
-    monitoring_page_obj = st.Page(
-        str(MONITORING_PAGE),
-        title="Monitoring",
-        icon="🔍",
-    )
     model_performance_page_obj = st.Page(
         str(MODEL_PERFORMANCE_PAGE),
         title="Model Performance",
@@ -1268,7 +1263,7 @@ if __name__ == "__main__":
     st.session_state["_page_home"] = home_page_obj
 
     current_page = st.navigation(
-        [home_page_obj, monitoring_page_obj, model_performance_page_obj],
+        [home_page_obj, model_performance_page_obj],
         position="top",
     )
     current_page.run()

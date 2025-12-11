@@ -1,7 +1,7 @@
 [server]
 # Server configuration for production deployment
-headless = true
-port = 8501
+headless = false
+port = 8510
 address = "0.0.0.0"
 enableCORS = true
 enableXsrfProtection = false
@@ -22,9 +22,13 @@ magicEnabled = false
 [browser]
 gatherUsageStats = false
 serverAddress = "0.0.0.0"
-serverPort = 8501
+serverPort = 8510
 
 [client]
 # Show toolbar with settings but hide Deploy button
 toolbarMode = "viewer"
 showErrorDetails = true
+
+[theme]
+# Wide mode for better responsiveness
+wideMode = true

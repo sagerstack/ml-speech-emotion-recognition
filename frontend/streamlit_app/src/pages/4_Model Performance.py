@@ -34,11 +34,15 @@ def render_model_performance() -> None:
 
     client = get_api_client()
 
-    try:
-        history = client.fetch_monitoring_metrics_history()
-    except RequestException as exc:
-        st.error(f"Unable to fetch monitoring metrics history: {exc}")
-        return
+    # Loading status for fetching model performance metrics
+    with st.status("Loading model performance metrics...", expanded=True) as status:
+        try:
+            history = client.fetch_monitoring_metrics_history()
+            status.update(label="Metrics loaded successfully!", state="complete", expanded=False)
+        except RequestException as exc:
+            status.update(label="Failed to load metrics", state="error")
+            st.error(f"Unable to fetch monitoring metrics history: {exc}")
+            return
 
     try:
         summary = client.fetch_monitoring_summary()
@@ -70,25 +74,56 @@ def render_model_performance() -> None:
         int(round(total_predictions * latest_accuracy)) if latest_accuracy is not None else None
     )
 
-    st.subheader("Model metadata")
-    meta_cols = st.columns(4)
-    meta_cols[0].metric("Version", model_info.get("version", "—"))
-    meta_cols[1].metric("Model Type", model_info.get("model_type", "—"))
-    meta_cols[2].metric("Feature Dim", model_info.get("feature_dimension", "—"))
-    meta_cols[3].metric("Available", "Yes" if model_info.get("available", False) else "No")
+    # Create two-column layout for accordions (70-30% split)
+    col1, col2 = st.columns([0.7, 0.3])
 
-    st.subheader("Prediction throughput")
-    stats_cols = st.columns(3)
-    stats_cols[0].metric("Predictions Made", total_predictions)
-    stats_cols[1].metric(
-        "Accurate Predictions",
-        accurate_predictions if accurate_predictions is not None else "—",
-        _format_pct(latest_accuracy) if latest_accuracy is not None else None,
-    )
-    stats_cols[2].metric("Snapshots Collected", history.get("count", len(df)))
+    with col1:
+        # Model Information Accordion
+        if model_info:
+            # Prepare accordion title with model info and status
+            model_name = model_info.get('model_name', 'Unknown Model')
+            is_available = model_info.get('available', False)
+            status_indicator = "🟢" if is_available else "❌"
+
+            accordion_title = f"{model_name} {status_indicator}"
+
+            with st.expander(accordion_title, expanded=True):
+                info_col1, info_col2 = st.columns(2)
+
+                with info_col1:
+                    st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 10px;">Model Name:</p>', unsafe_allow_html=True)
+                    st.markdown(f'<p style="color: inherit; margin-top: -15px; margin-bottom: 15px; font-size: 16px; font-weight: 500;">{model_info.get("model_name", "N/A")}</p>', unsafe_allow_html=True)
+                    st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 10px;">Model Type:</p>', unsafe_allow_html=True)
+                    st.markdown(f'<p style="color: inherit; margin-top: -15px; margin-bottom: 15px; font-size: 16px; font-weight: 500;">{model_info.get("model_type", "N/A")}</p>', unsafe_allow_html=True)
+
+                with info_col2:
+                    st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 10px;">Feature Dimension:</p>', unsafe_allow_html=True)
+                    st.markdown(f'<p style="color: inherit; margin-top: -15px; margin-bottom: 15px; font-size: 16px; font-weight: 500;">{model_info.get("feature_dimension", "N/A")}</p>', unsafe_allow_html=True)
+                    st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 10px;">Number of Classes:</p>', unsafe_allow_html=True)
+                    st.markdown(f'<p style="color: inherit; margin-top: -15px; margin-bottom: 15px; font-size: 16px; font-weight: 500;">{model_info.get("num_classes", "N/A")}</p>', unsafe_allow_html=True)
+
+    with col2:
+        # Prediction throughput accordion
+        with st.expander("📊 Prediction Throughput Metrics", expanded=True):
+            st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 10px;">Predictions Made</p>', unsafe_allow_html=True)
+            st.markdown(f'<p style="color: inherit; font-size: 24px; font-weight: bold; margin-top: -10px; margin-bottom: 20px;">{total_predictions}</p>', unsafe_allow_html=True)
+            st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 10px;">Accurate Predictions</p>', unsafe_allow_html=True)
+            accurate_predictions_value = accurate_predictions if accurate_predictions is not None else "—"
+            delta_value = _format_pct(latest_accuracy) if latest_accuracy is not None else None
+            delta_display = f" ({delta_value})" if delta_value else ""
+            st.markdown(f'<p style="color: inherit; font-size: 24px; font-weight: bold; margin-top: -10px;">{accurate_predictions_value}<span style="color: green; font-size: 16px;">{delta_display}</span></p>', unsafe_allow_html=True)
+
+    # Add View HTML Report link aligned to the right
+    if summary and summary.get("last_report"):
+        last_report = summary.get("last_report")
+        report_url = f"{client.base_url}/v1/monitoring/reports/{last_report.get('name')}"
+        # Use columns to align link to the right
+        _, link_col = st.columns([0.85, 0.15])
+        with link_col:
+            st.markdown(f'<div style="text-align: right;"><a href="{report_url}" target="_blank" style="color: #87CEEB; text-decoration: none;">View Evidently Report</a></div>', unsafe_allow_html=True)
 
     st.divider()
-    st.subheader("Classification quality (latest)")
+    st.subheader("Classification Quality")
     metric_cols = st.columns(4)
     metric_cols[0].metric("Accuracy", _format_pct(latest_accuracy))
     metric_cols[1].metric("Precision", _format_pct(latest.get("precision")))
@@ -114,7 +149,7 @@ def render_model_performance() -> None:
     st.plotly_chart(perf_fig, use_container_width=True)
 
     st.divider()
-    st.subheader("Drift signals (latest)")
+    st.markdown('<p style="color: rgba(128, 128, 128, 0.8); font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem;">Drift signals (latest)</p>', unsafe_allow_html=True)
     drift_cols = st.columns(4)
     drift_cols[0].metric(
         "Drifted Features (%)",
@@ -133,7 +168,7 @@ def render_model_performance() -> None:
         _format_float(latest.get("label_drift")),
     )
 
-    st.subheader("Drift Trends Over Time")
+    st.markdown('<p style="color: rgba(128, 128, 128, 0.8); font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem;">Drift Trends Over Time</p>', unsafe_allow_html=True)
     drift_trend_df = df.melt(
         id_vars="timestamp",
         value_vars=["drifted_features_share", "prediction_drift", "label_drift"],
@@ -151,7 +186,7 @@ def render_model_performance() -> None:
     drift_fig.update_layout(margin=dict(t=40, r=10, l=10, b=10), legend_title_text="")
     st.plotly_chart(drift_fig, use_container_width=True)
 
-    st.subheader("Concept Drift Detection")
+    st.markdown('<p style="color: rgba(128, 128, 128, 0.8); font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem;">Concept Drift Detection</p>', unsafe_allow_html=True)
     concept_df = df[["timestamp", "accuracy", "f1"]].rename(
         columns={"accuracy": "Accuracy", "f1": "F1 Score"}
     )
@@ -164,10 +199,5 @@ def render_model_performance() -> None:
     )
     concept_fig.update_layout(margin=dict(t=40, r=10, l=10, b=10), legend_title_text="")
     st.plotly_chart(concept_fig, use_container_width=True)
-
-    st.divider()
-    st.subheader("Raw metrics payload")
-    st.json(history)
-
 
 render_model_performance()

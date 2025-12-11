@@ -97,9 +97,9 @@ class LogPredictionForMonitoringUseCase:
                 api_version=api_version,
             )
 
-            # Auto-report generation disabled - reports should be generated manually
-            # after feedback is submitted to ensure actual_emotion labels are included.
-            # Use POST /v1/monitoring/generate to trigger report generation.
+            # Auto-generate report when buffer hits configured threshold
+            if self.monitoring_service.should_generate_report(buffer_length):
+                self._trigger_auto_report(buffer_length)
 
             return prediction_id
 

@@ -9,7 +9,7 @@ metadata:
     environment: production
     version: v1
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: ml-speech-emotion-recognition
@@ -116,6 +116,11 @@ spec:
             configMapKeyRef:
               name: app-config
               key: EVIDENTLY_WORKSPACE_PATH
+        - name: MONITORING_AUTO_REPORT_THRESHOLD
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: MONITORING_AUTO_REPORT_THRESHOLD
         # S3 reference dataset for Evidently monitoring (lazy loaded on first report generation)
         - name: MONITORING_REFERENCE_S3_BUCKET
           value: "ml-speech-emotion-models-us-east-1"
@@ -140,28 +145,28 @@ spec:
           value: "service.name=ml-emotion-api,service.version=1.0.0,deployment.environment=production"
         resources:
           requests:
-            memory: "1Gi"
-            cpu: "250m"
-          limits:
             memory: "2Gi"
-            cpu: "1000m"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
         livenessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 30
+          initialDelaySeconds: 60
           periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+          timeoutSeconds: 10
+          failureThreshold: 6
           successThreshold: 1
         readinessProbe:
           httpGet:
             path: /health
             port: 8000
           initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 3
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 6
           successThreshold: 1
         startupProbe:
           httpGet:
@@ -269,8 +274,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: backend
-  minReplicas: 2
-  maxReplicas: 10
+  minReplicas: 1
+  maxReplicas: 1
   metrics:
   - type: Resource
     resource:
