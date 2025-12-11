@@ -29,6 +29,3 @@ serverPort = 8510
 toolbarMode = "viewer"
 showErrorDetails = true
 
-[theme]
-# Wide mode for better responsiveness
-wideMode = true
