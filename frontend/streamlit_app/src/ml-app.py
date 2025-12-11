@@ -395,6 +395,7 @@ def stage_audio_recording() -> AnalysisResult | None:
                 label = f"live-recording-{datetime.utcnow().strftime('%H%M%S')}"
 
             try:
+                logger.debug("Starting audio processing", source_label=label, has_upload=bool(upload), has_recording=bool(recording))
                 audio_bytes = _load_audio_from_upload(audio_source)
                 # Check if we're in mock mode for simulated delay
                 use_real_backend, _, force_mock = get_backend_status()
@@ -421,6 +422,7 @@ def stage_audio_recording() -> AnalysisResult | None:
                 st.rerun()
             except Exception as e:
                 error_msg = f"Failed to process audio locally: {str(e)}"
+                logger.exception("Audio processing failed", exc_info=e)
                 st.error(error_msg, icon="❌")
                 if SHOW_DEBUG_INFO:
                     st.expander("Error Details").write(str(e))
@@ -1210,6 +1212,20 @@ def stage_inference_results(result: AnalysisResult | None):
                 probabilities=payload["probabilities"],
                 use_real_backend=payload["use_real_backend"],
             )
+            # Save Audio button aligned under Home button column
+            audio_blob = st.session_state.get(AUDIO_DATA_KEY, {})
+            audio_bytes = audio_blob.get("bytes")
+            filename = audio_blob.get("filename", "audio.wav")
+            if audio_bytes:
+                st.download_button(
+                    label="💾 Save Audio",
+                    data=audio_bytes,
+                    file_name=filename if filename.endswith(".wav") else f"{filename}.wav",
+                    mime="audio/wav",
+                    key="iter5-save-audio-btn",
+                    type="secondary",
+                    use_container_width=False,
+                )
 
 
 

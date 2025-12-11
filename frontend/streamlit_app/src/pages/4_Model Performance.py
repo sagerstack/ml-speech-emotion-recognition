@@ -74,12 +74,17 @@ def render_model_performance() -> None:
     accurate_predictions = (
         int(round(total_predictions * latest_accuracy)) if latest_accuracy is not None else None
     )
+    try:
+        new_since_report = client.fetch_new_predictions_since_last_report()
+    except RequestException as exc:
+        new_since_report = {}
+        st.warning(f"Unable to fetch predictions since last report: {exc}")
 
-    # Create two-column layout for accordions (70-30% split)
-    col1, col2 = st.columns([0.7, 0.3])
+    # Create two-column layout for accordions (50-50 split)
+    col1, col2 = st.columns([0.5, 0.5])
 
     with col1:
-        # Model Information Accordion
+        # Model Information Accordion (includes throughput metrics)
         if model_info:
             # Prepare accordion title with model info and status
             model_name = model_info.get('model_name', 'Unknown Model')
@@ -103,29 +108,80 @@ def render_model_performance() -> None:
                     st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 10px;">Number of Classes:</p>', unsafe_allow_html=True)
                     st.markdown(f'<p style="color: inherit; margin-top: -15px; margin-bottom: 15px; font-size: 16px; font-weight: 500;">{model_info.get("num_classes", "N/A")}</p>', unsafe_allow_html=True)
 
-    with col2:
-        # Prediction throughput accordion
-        with st.expander("📊 Prediction Throughput Metrics", expanded=True):
-            st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 10px;">Predictions Made</p>', unsafe_allow_html=True)
-            st.markdown(f'<p style="color: inherit; font-size: 24px; font-weight: bold; margin-top: -10px; margin-bottom: 20px;">{total_predictions}</p>', unsafe_allow_html=True)
-            st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 10px;">Accurate Predictions</p>', unsafe_allow_html=True)
-            accurate_predictions_value = accurate_predictions if accurate_predictions is not None else "—"
-            delta_value = _format_pct(latest_accuracy) if latest_accuracy is not None else None
-            delta_display = f" ({delta_value})" if delta_value else ""
-            st.markdown(f'<p style="color: inherit; font-size: 24px; font-weight: bold; margin-top: -10px;">{accurate_predictions_value}<span style="color: green; font-size: 16px;">{delta_display}</span></p>', unsafe_allow_html=True)
+                st.markdown("---")
+                metrics_row = st.columns(2)
+                with metrics_row[0]:
+                    st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 6px;">Predictions Made</p>', unsafe_allow_html=True)
+                    st.markdown(f'<p style="color: inherit; font-size: 20px; font-weight: bold; margin-top: -8px; margin-bottom: 0;">{total_predictions}</p>', unsafe_allow_html=True)
+                with metrics_row[1]:
+                    st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 6px;">Accurate Predictions</p>', unsafe_allow_html=True)
+                    accurate_predictions_value = accurate_predictions if accurate_predictions is not None else "—"
+                    delta_value = _format_pct(latest_accuracy) if latest_accuracy is not None else None
+                    delta_display = f" ({delta_value})" if delta_value else ""
+                    st.markdown(
+                        f'<p style="color: inherit; font-size: 20px; font-weight: bold; margin-top: -8px; margin-bottom: 0;">{accurate_predictions_value}'
+                        f'<span style="color: green; font-size: 14px;">{delta_display}</span></p>',
+                        unsafe_allow_html=True
+                    )
 
-    # Add View HTML Report link aligned to the right
-    if summary and summary.get("last_report"):
-        last_report = summary.get("last_report")
-        # Use public-facing base URL so link works in the user's browser (not the in-cluster service name)
-        public_base_url = os.getenv("PUBLIC_APP_BASE_URL", client.base_url)
-        report_url = f"{public_base_url.rstrip('/')}/v1/monitoring/reports/{last_report.get('name')}"
-        # Use columns to align link to the right
-        _, link_col = st.columns([0.85, 0.15])
-        with link_col:
-            st.markdown(f'<div style="text-align: right;"><a href="{report_url}" target="_blank" style="color: #87CEEB; text-decoration: none;">View Evidently Report</a></div>', unsafe_allow_html=True)
+    with col2:
+        # Evidently Reports accordion with run/view controls
+        with st.expander("📊 Evidently Reports", expanded=True):
+            st.caption("Generate and open the latest Evidently report.")
+
+            status_text = "No reports generated."
+            latest_report = None
+            if summary and summary.get("last_report"):
+                latest_report = summary.get("last_report", {})
+                status_text = "Reports available."
+
+            st.markdown(f"**Status:** {status_text}")
+
+            # Latest report table
+            if latest_report:
+                report_name = latest_report.get("name")
+                created_at = latest_report.get("created_at", "")
+                try:
+                    # Format to yyyy-mm-dd HH24:mm
+                    created_at_display = pd.to_datetime(created_at).strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    created_at_display = created_at or "—"
+
+                public_base_url = os.getenv("PUBLIC_APP_BASE_URL", client.base_url)
+                report_url = f"{public_base_url.rstrip('/')}/v1/monitoring/reports/{report_name}"
+
+                report_df = pd.DataFrame(
+                    [{
+                        "Report Name": report_name or "—",
+                        "Created Date": created_at_display,
+                        "View": f"[Open]({report_url})"
+                    }]
+                )
+                st.table(report_df)
+            else:
+                st.info("No reports available yet. Generate one to view here.")
+
+            st.markdown("---")
+
+            # New predictions + Generate button row
+            stats_cols = st.columns([0.6, 0.4])
+            with stats_cols[0]:
+                buffered = new_since_report.get("new_since_last_report", buffer_stats.get("total_records", 0))
+                st.markdown('<p style="color: rgba(128, 128, 128, 0.8); margin-bottom: 6px;">New Predictions</p>', unsafe_allow_html=True)
+                st.markdown(f'<p style="color: inherit; font-size: 20px; font-weight: bold; margin-top: -8px; margin-bottom: 0;">{buffered}</p>', unsafe_allow_html=True)
+            with stats_cols[1]:
+                if st.button("🧭 Generate", use_container_width=False, type="primary"):
+                    with st.spinner("Triggering report generation..."):
+                        try:
+                            resp = client.session.post(f"{client.base_url}/v1/monitoring/generate", timeout=90)
+                            resp.raise_for_status()
+                            st.success("Report generation started.")
+                        except Exception as exc:
+                            st.error(f"Failed to start report generation: {exc}")
 
     st.divider()
+
+    # Add View HTML Report link aligned to the right
     st.subheader("Classification Quality")
     metric_cols = st.columns(4)
     metric_cols[0].metric("Accuracy", _format_pct(latest_accuracy))

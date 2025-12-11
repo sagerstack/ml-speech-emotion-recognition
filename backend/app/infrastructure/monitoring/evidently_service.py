@@ -757,6 +757,37 @@ class EvidentlyService:
     def list_reports(self) -> List[Dict[str, object]]:
         return [report.to_dict() for report in self.report_history]
 
+    def count_predictions_since_last_report(self) -> Dict[str, object]:
+        """
+        Count predictions added to the buffer since the most recent report.
+
+        Returns:
+            dict with:
+                - new_since_last_report: int
+                - last_report_created_at: ISO timestamp or None
+        """
+        df = self.buffer.to_dataframe()
+        last_created_at = self.report_history[-1].created_at if self.report_history else None
+
+        if df.empty:
+            return {
+                "new_since_last_report": 0,
+                "last_report_created_at": last_created_at.isoformat() if last_created_at else None,
+            }
+
+        if not last_created_at:
+            return {
+                "new_since_last_report": len(df),
+                "last_report_created_at": None,
+            }
+
+        # Filter by timestamp greater than last report creation
+        df_recent = df[df["timestamp"] > last_created_at]
+        return {
+            "new_since_last_report": len(df_recent),
+            "last_report_created_at": last_created_at.isoformat(),
+        }
+
     def _safe_report_path(self, report_name: str) -> Optional[Path]:
         """Return a report path only if it resides within the reports directory."""
 

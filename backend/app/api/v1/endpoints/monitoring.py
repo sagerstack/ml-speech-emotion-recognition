@@ -38,6 +38,17 @@ async def monitoring_buffer_stats():
     return service.buffer.stats()
 
 
+@router.get("/monitoring/buffer/since-last-report")
+async def monitoring_buffer_since_last_report():
+    """Count predictions added since the most recent report."""
+
+    service = get_monitoring_service()
+    if service is None:
+        raise HTTPException(status_code=503, detail="Monitoring service unavailable")
+
+    return service.count_predictions_since_last_report()
+
+
 @router.post("/monitoring/generate")
 async def monitoring_generate():
     """Trigger Evidently report generation manually."""

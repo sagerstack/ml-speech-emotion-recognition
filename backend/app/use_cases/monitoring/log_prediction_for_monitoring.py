@@ -97,10 +97,6 @@ class LogPredictionForMonitoringUseCase:
                 api_version=api_version,
             )
 
-            # Auto-generate report when buffer hits configured threshold
-            if self.monitoring_service.should_generate_report(buffer_length):
-                self._trigger_auto_report(buffer_length)
-
             return prediction_id
 
         except Exception as exc:
