@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from api_client import get_api_client
 from sidebar import render_sidebar
 
+import os
 
 def _format_pct(value: float | None, decimals: int = 1) -> str:
     if value is None:
@@ -116,7 +117,9 @@ def render_model_performance() -> None:
     # Add View HTML Report link aligned to the right
     if summary and summary.get("last_report"):
         last_report = summary.get("last_report")
-        report_url = f"{client.base_url}/v1/monitoring/reports/{last_report.get('name')}"
+        # Use public-facing base URL so link works in the user's browser (not the in-cluster service name)
+        public_base_url = os.getenv("PUBLIC_APP_BASE_URL", client.base_url)
+        report_url = f"{public_base_url.rstrip('/')}/v1/monitoring/reports/{last_report.get('name')}"
         # Use columns to align link to the right
         _, link_col = st.columns([0.85, 0.15])
         with link_col:
