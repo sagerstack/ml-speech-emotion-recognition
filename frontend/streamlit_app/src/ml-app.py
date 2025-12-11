@@ -1216,21 +1216,16 @@ def stage_inference_results(result: AnalysisResult | None):
             audio_blob = st.session_state.get(AUDIO_DATA_KEY, {})
             audio_bytes = audio_blob.get("bytes")
             filename = audio_blob.get("filename", "audio.wav")
-            save_placeholder = st.empty()
             if audio_bytes:
-                save_clicked = st.button("💾 Save Audio", key="iter5-save-audio-btn", type="primary")
-                if save_clicked:
-                    try:
-                        # Streamlit download_button allows user to pick download location via browser prompt
-                        save_placeholder.download_button(
-                            label="Click to download audio",
-                            data=audio_bytes,
-                            file_name=filename,
-                            mime="audio/wav",
-                            key="iter5-save-audio-download"
-                        )
-                    except Exception as exc:
-                        st.error(f"Failed to prepare download: {exc}")
+                st.download_button(
+                    label="💾 Save Audio",
+                    data=audio_bytes,
+                    file_name=filename if filename.endswith(".wav") else f"{filename}.wav",
+                    mime="audio/wav",
+                    key="iter5-save-audio-btn",
+                    type="secondary",
+                    use_container_width=False,
+                )
 
 
 
